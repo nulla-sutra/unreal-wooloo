@@ -1,4 +1,4 @@
-#include "MutableGraphService.h"
+#include "WoolooMutable/Graph/MutableGraphService.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetToolsModule.h"

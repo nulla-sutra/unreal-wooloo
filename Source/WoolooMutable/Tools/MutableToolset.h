@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "ToolsetRegistry/ToolsetDefinition.h"
-#include "MutableToolResults.h"
+#include "WoolooMutable/Tools/MutableToolResults.h"
 #include "MutableToolset.generated.h"
 
 /** Inspect and author Mutable graphs. Writes require an explicit directory, metadata key, and owner. */

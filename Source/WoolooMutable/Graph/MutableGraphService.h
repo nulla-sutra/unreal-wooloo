@@ -1,6 +1,6 @@
 #pragma once
 
-#include "MutableGraphTypes.h"
+#include "WoolooMutable/Graph/MutableGraphTypes.h"
 
 struct FCompileCallbackParams;
 

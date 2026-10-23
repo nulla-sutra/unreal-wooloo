@@ -5,9 +5,11 @@ public class WoolooMutable : ModuleRules
 {
     public WoolooMutable(ReadOnlyTargetRules Target) : base(Target)
     {
-        PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
+        PCHUsage = PCHUsageMode.Default;
 
-        PublicIncludePaths.Add(ModuleDirectory);
+        // Resolve module-qualified headers through Unreal's parent include paths.
+        bLegacyParentIncludePaths = true;
+
 
         PublicDependencyModuleNames.AddRange(new[]
         {

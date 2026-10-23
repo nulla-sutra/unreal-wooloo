@@ -14,9 +14,34 @@
             "Name": "WoolooMutable",
             "Type": "Editor",
             "LoadingPhase": "PostEngineInit"
+        },
+        {
+            "Name": "WoolooStateTree",
+            "Type": "Editor",
+            "LoadingPhase": "PostEngineInit"
+        },
+        {
+            "Name": "WoolooBlueprint",
+            "Type": "Editor",
+            "LoadingPhase": "PostEngineInit"
         }
     ],
     "Plugins": [
+        {
+            "Name": "EnhancedInput",
+            "Enabled": true,
+            "TargetAllowList": [ "Editor" ]
+        },
+        {
+            "Name": "PropertyBindingUtils",
+            "Enabled": true,
+            "TargetAllowList": [ "Editor" ]
+        },
+        {
+            "Name": "StateTree",
+            "Enabled": true,
+            "TargetAllowList": [ "Editor" ]
+        },
         {
             "Name": "Mutable",
             "Enabled": true,

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Graph/MutableGraphTypes.h"
+#include "WoolooMutable/Graph/MutableGraphTypes.h"
 #include "MutableToolResults.generated.h"
 
 USTRUCT(BlueprintType)

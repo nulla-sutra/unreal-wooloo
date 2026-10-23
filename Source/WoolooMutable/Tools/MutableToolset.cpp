@@ -1,6 +1,6 @@
-#include "MutableToolset.h"
+#include "WoolooMutable/Tools/MutableToolset.h"
 
-#include "Graph/MutableGraphService.h"
+#include "WoolooMutable/Graph/MutableGraphService.h"
 #include "MuCO/CustomizableObject.h"
 
 TArray<FMutableToolNodeType> UMutableToolset::ListNodeTypes()

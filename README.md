@@ -9,9 +9,16 @@ Capabilities are organized into separate modules by domain.
 | Module | Type / loading phase | Responsibility |
 | --- | --- | --- |
 | `WoolooMutable` | Editor / PostEngineInit | Native Mutable graph and asset operations, shared reflected types, and seven MCP/Python tools |
+| `WoolooStateTree` | Editor / PostEngineInit | Native StateTree parameters, instance data, hierarchy, transitions, bindings, compilation and saving |
+| `WoolooBlueprint` | Editor / PostEngineInit | Blueprint graph inspection, targeted edits, layout/comments, compilation and saving |
 
 The Mutable toolset is `WoolooMutable.MutableToolset`. Python uses the same
 reflected facade through `unreal.MutableToolset`.
+
+The additional toolsets are `WoolooStateTree.WoolooStateTreeToolset` and
+`WoolooBlueprint.WoolooBlueprintToolset`. Their native services do not depend on
+consuming gameplay plugins. See [StateTree tools](Docs/StateTree/native-mcp.md)
+and [Blueprint tools](Docs/Blueprint/native-mcp.md).
 
 ## Integration
 
@@ -22,17 +29,17 @@ reflected facade through `unreal.MutableToolset`.
 4. Start Unreal's official MCP server and discover the registered toolset using
    the [Mutable tool guide](Docs/Mutable/native-mcp.md).
 
-The plugin descriptor declares Editor-only dependencies on `Mutable`,
-`ToolsetRegistry`, and `ModelContextProtocol`. Wooloo has no runtime module.
-C++ consumers of the native service must also declare a `WoolooMutable` module
-dependency; MCP and Python consumers use its reflected tools.
+The plugin descriptor declares Editor-only dependencies on `Mutable`, `StateTree`,
+`PropertyBindingUtils`, `ToolsetRegistry`, and `ModelContextProtocol`. Wooloo has no
+runtime module. C++ consumers declare the owning capability module as a dependency;
+MCP and Python consumers use that module's reflected tools.
 
 The module registers its toolset during startup and unregisters it during
 shutdown. Server startup and asset operations are explicit actions.
 
 ## Ownership contract
 
-Callers supply `OwnerMetadataKey` for ownership inspection and all write
+Mutable callers supply `OwnerMetadataKey` for ownership inspection and all write
 operations. They also supply `AllowedPackageRoot` and `ExpectedOwner` for writes.
 The metadata key and owner value are caller-owned conventions.
 
@@ -41,12 +48,21 @@ Creation tags only newly created assets. Graph replacement, resource compilation
 and saving are separate operations. Recipes, batch workflows, asset paths, and
 integration policies belong to consumers.
 
+Blueprint and StateTree edits are targeted by graph/node/state IDs and require an
+explicit narrow `AllowedPackageRoot`. They reject paths outside that directory,
+engine-owned content, and writes during PIE. Creation, edits, compilation and saving
+are separate actions. Read tools do not repair subjects. Instance values are staged
+before imports; no generic array edit-chain notifications are fabricated.
+
 ## Source layout
 
 - `Source/WoolooMutable/Graph/`: native graph service and shared graph types.
 - `Source/WoolooMutable/Tools/`: reflected tools and result envelopes.
 - `Source/WoolooMutable/WoolooMutable.cpp`: toolset registration lifecycle.
 - `Docs/Mutable/`: API, integration, and editor verification instructions.
+- `Source/WoolooStateTree/`: StateTree native service and reflected tool facade.
+- `Source/WoolooBlueprint/`: Blueprint native graph service and reflected tool facade.
+- `Docs/StateTree/` and `Docs/Blueprint/`: tool contracts and editor verification.
 
 Headers and implementations stay together by feature. The UE 5.8 integration
 reads native hierarchy and compilation interfaces from
