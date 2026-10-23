@@ -1,0 +1,36 @@
+{
+    "FileVersion": 3,
+    "Version": 1,
+    "VersionName": "1.0",
+    "FriendlyName": "Wooloo",
+    "Description": "Reusable editor tools extending Unreal Engine's native MCP.",
+    "Category": "Editor",
+    "CanContainContent": false,
+    "IsBetaVersion": true,
+    "Installed": false,
+    "EnabledByDefault": false,
+    "Modules": [
+        {
+            "Name": "WoolooMutable",
+            "Type": "Editor",
+            "LoadingPhase": "PostEngineInit"
+        }
+    ],
+    "Plugins": [
+        {
+            "Name": "Mutable",
+            "Enabled": true,
+            "TargetAllowList": [ "Editor" ]
+        },
+        {
+            "Name": "ToolsetRegistry",
+            "Enabled": true,
+            "TargetAllowList": [ "Editor" ]
+        },
+        {
+            "Name": "ModelContextProtocol",
+            "Enabled": true,
+            "TargetAllowList": [ "Editor" ]
+        }
+    ]
+}
