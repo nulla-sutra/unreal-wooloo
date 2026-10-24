@@ -6,11 +6,12 @@ Capabilities are organized into separate modules by domain.
 
 ## Modules
 
-| Module | Type / loading phase | Responsibility |
-| --- | --- | --- |
-| `WoolooMutable` | Editor / PostEngineInit | Native Mutable graph and asset operations, shared reflected types, and seven MCP/Python tools |
+| Module            | Type / loading phase    | Responsibility                                                                                       |
+|-------------------|-------------------------|------------------------------------------------------------------------------------------------------|
+| `WoolooMutable`   | Editor / PostEngineInit | Native Mutable graph and asset operations, shared reflected types, and seven MCP/Python tools        |
 | `WoolooStateTree` | Editor / PostEngineInit | Native StateTree parameters, instance data, hierarchy, transitions, bindings, compilation and saving |
-| `WoolooBlueprint` | Editor / PostEngineInit | Blueprint graph inspection, targeted edits, layout/comments, compilation and saving |
+| `WoolooBlueprint` | Editor / PostEngineInit | Blueprint graph inspection, targeted edits, layout/comments, compilation and saving                  |
+| `WoolooAssets`    | Editor / PostEngineInit | Explicit asset-move planning, native batch moves, redirector inspection and native reference fixup   |
 
 The Mutable toolset is `WoolooMutable.MutableToolset`. Python uses the same
 reflected facade through `unreal.MutableToolset`.
@@ -19,6 +20,10 @@ The additional toolsets are `WoolooStateTree.WoolooStateTreeToolset` and
 `WoolooBlueprint.WoolooBlueprintToolset`. Their native services do not depend on
 consuming gameplay plugins. See [StateTree tools](Docs/StateTree/native-mcp.md)
 and [Blueprint tools](Docs/Blueprint/native-mcp.md).
+
+`WoolooAssets.WoolooAssetToolset` exposes the [asset migration tools](Docs/Assets/native-mcp.md).
+It reuses Unreal's AssetTools and Asset Registry, with no consuming-plugin paths
+or migration recipes in the module.
 
 ## Integration
 
@@ -54,6 +59,12 @@ engine-owned content, and writes during PIE. Creation, edits, compilation and sa
 are separate actions. Read tools do not repair subjects. Instance values are staged
 before imports; no generic array edit-chain notifications are fabricated.
 
+Asset migration callers supply exact source/destination package pairs, narrow
+allowed roots, protected roots and an explicit list of approved referencer packages.
+Read-only planning does not load assets. Native rename/fixup may save referencers,
+update collections and use configured source control. Authoring requires a clean
+editor and stopped PIE; it does not build C++, run gameplay, or automatically start MCP.
+
 ## Source layout
 
 - `Source/WoolooMutable/Graph/`: native graph service and shared graph types.
@@ -63,6 +74,8 @@ before imports; no generic array edit-chain notifications are fabricated.
 - `Source/WoolooStateTree/`: StateTree native service and reflected tool facade.
 - `Source/WoolooBlueprint/`: Blueprint native graph service and reflected tool facade.
 - `Docs/StateTree/` and `Docs/Blueprint/`: tool contracts and editor verification.
+- `Source/WoolooAssets/`: native AssetTools adapter and reflected tool facade.
+- `Docs/Assets/`: asset migration contracts and editor verification.
 
 Headers and implementations stay together by feature. The UE 5.8 integration
 reads native hierarchy and compilation interfaces from

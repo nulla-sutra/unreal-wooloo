@@ -24,6 +24,11 @@
             "Name": "WoolooBlueprint",
             "Type": "Editor",
             "LoadingPhase": "PostEngineInit"
+        },
+        {
+            "Name": "WoolooAssets",
+            "Type": "Editor",
+            "LoadingPhase": "PostEngineInit"
         }
     ],
     "Plugins": [
