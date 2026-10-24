@@ -15,6 +15,8 @@ Writing C++ does not by itself connect an MCP client or hot-load reflected types
 - DescribeStateTree: read flat state/parent IDs, native node/wrapper types,
   node names, instance types/object paths, instance property ImportText values,
   schema context names/types/GUIDs, root parameter GUID and property bindings.
+  Each node includes `binding_sources`: the accessible source `id`, `name` and
+  `type` returned by the native editor data's `GetBindableStructs(Node.ID)` query.
 - CreateStateTree: explicit long package path and native schema class path. Uses
   the native factory, refuses existing packages, and creates an unsaved asset.
 - EditStateTree: one FWoolooStateTreeEdit. Returns the changed entity's GUID.
@@ -74,7 +76,16 @@ The source class must be assignable to that object property. Whole-struct source
 require an exactly matching target struct property. TargetPath must name a property.
 Successful edits notify an existing native editor view model to refresh its view.
 
-Each call is an editor transaction. Failed validation leaves live property values
+To bind a transition condition's whole event, find that condition in
+`DescribeStateTree` and select its `binding_sources` entry named `Transition Event`
+with type `/Script/StateTreeModule.StateTreeEvent`. Pass that entry's `id` as
+`SourceId`, an empty `SourcePath`, the condition's `id` as `NodeId`, and its
+event input property name as `TargetPath` to `BindProperty`. Native visibility
+provides the owning transition's event source. Query the target node again after
+moving it or changing its transition; source availability is specific to that
+node's execution path. The read operation leaves the asset and its bindings unchanged.
+
+Each edit is an editor transaction. Failed validation leaves live property values
 unchanged; use editor Undo for an applied edit. Compilation is explicit and can
 perform the native compiler's own validation/normalization. Do not treat a read or
 previous compiled state as proof that subsequent edits compile.
@@ -99,3 +110,11 @@ request to verify that failed validation changes no field. Reject abstract,
 deprecated, unrelated and schema-disallowed classes without adding a node;
 reject mismatched context-object types. Repeat the existing struct-task and
 condition scenarios to check compatibility. These checks have not been run.
+
+For binding-source discovery, add event transitions with conditions on separate
+states and multiple event transitions on the same state. Inspect each condition's
+`binding_sources` and confirm its `Transition Event` source belongs to its own
+transition. Bind the whole event, compile, save and reopen; confirm the source ID
+and target property survive. Verify a source from another transition is rejected,
+nodes outside event transitions do not expose that event, and repeated describes
+leave package dirty state and bindings unchanged. These checks have not been run.

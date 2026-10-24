@@ -73,7 +73,7 @@ TSharedRef<FJsonObject> Properties(const UStruct* Type, const void* Memory)
     return Json;
 }
 
-TSharedRef<FJsonObject> DescribeNode(const FStateTreeEditorNode& Node)
+TSharedRef<FJsonObject> DescribeNode(const FStateTreeEditorNode& Node, const UStateTreeEditorData& Data)
 {
     auto Json = MakeShared<FJsonObject>();
     Json->SetStringField(TEXT("id"), Node.ID.ToString());
@@ -83,6 +83,20 @@ TSharedRef<FJsonObject> DescribeNode(const FStateTreeEditorNode& Node)
     const auto View = Node.GetInstance();
     Json->SetStringField(TEXT("instance_type"), GetPathNameSafe(View.GetStruct()));
     Json->SetObjectField(TEXT("instance"), Properties(View.GetStruct(), View.GetMemory()));
+    TArray<TInstancedStruct<FPropertyBindingBindableStructDescriptor>> BindableStructs;
+    // Native visibility ties each transition event to the conditions on its own transition.
+    Data.GetBindableStructs(Node.ID, BindableStructs);
+    TArray<TSharedPtr<FJsonValue>> Sources;
+    for (const auto& Source : BindableStructs)
+    {
+        const auto& Desc = Source.Get();
+        auto Item = MakeShared<FJsonObject>();
+        Item->SetStringField(TEXT("id"), Desc.ID.ToString());
+        Item->SetStringField(TEXT("name"), Desc.Name.ToString());
+        Item->SetStringField(TEXT("type"), GetPathNameSafe(Desc.Struct));
+        Sources.Add(MakeShared<FJsonValueObject>(Item));
+    }
+    Json->SetArrayField(TEXT("binding_sources"), Sources);
     return Json;
 }
 
@@ -198,10 +212,10 @@ FWoolooStateTreeResult Describe(const FString& Path)
     Json->SetObjectField(TEXT("parameters"), Properties(Parameters.GetScriptStruct(), Parameters.GetMemory()));
     Json->SetBoolField(TEXT("needs_compile"), UStateTreeEditingSubsystem::NeedsRecompile(Tree));
     TArray<TSharedPtr<FJsonValue>> GlobalTasks;
-    for (const auto& Node : Data->GlobalTasks) GlobalTasks.Add(MakeShared<FJsonValueObject>(DescribeNode(Node)));
+    for (const auto& Node : Data->GlobalTasks) GlobalTasks.Add(MakeShared<FJsonValueObject>(DescribeNode(Node, *Data)));
     Json->SetArrayField(TEXT("global_tasks"), GlobalTasks);
     TArray<TSharedPtr<FJsonValue>> Evaluators;
-    for (const auto& Node : Data->Evaluators) Evaluators.Add(MakeShared<FJsonValueObject>(DescribeNode(Node)));
+    for (const auto& Node : Data->Evaluators) Evaluators.Add(MakeShared<FJsonValueObject>(DescribeNode(Node, *Data)));
     Json->SetArrayField(TEXT("evaluators"), Evaluators);
     TArray<TSharedPtr<FJsonValue>> States;
     Data->VisitHierarchy([&](UStateTreeState& State, UStateTreeState* Parent)
@@ -212,11 +226,11 @@ FWoolooStateTreeResult Describe(const FString& Path)
         Item->SetStringField(TEXT("name"), State.Name.ToString());
         Item->SetStringField(TEXT("type"), StaticEnum<EStateTreeStateType>()->GetNameStringByValue(static_cast<int64>(State.Type)));
         TArray<TSharedPtr<FJsonValue>> Tasks;
-        for (const auto& Node : State.Tasks) Tasks.Add(MakeShared<FJsonValueObject>(DescribeNode(Node)));
+        for (const auto& Node : State.Tasks) Tasks.Add(MakeShared<FJsonValueObject>(DescribeNode(Node, *Data)));
         Item->SetArrayField(TEXT("tasks"), Tasks);
-        if (State.SingleTask.Node.IsValid()) Item->SetObjectField(TEXT("single_task"), DescribeNode(State.SingleTask));
+        if (State.SingleTask.Node.IsValid()) Item->SetObjectField(TEXT("single_task"), DescribeNode(State.SingleTask, *Data));
         TArray<TSharedPtr<FJsonValue>> Conditions;
-        for (const auto& Node : State.EnterConditions) Conditions.Add(MakeShared<FJsonValueObject>(DescribeNode(Node)));
+        for (const auto& Node : State.EnterConditions) Conditions.Add(MakeShared<FJsonValueObject>(DescribeNode(Node, *Data)));
         Item->SetArrayField(TEXT("enter_conditions"), Conditions);
         TArray<TSharedPtr<FJsonValue>> Transitions;
         for (const auto& Transition : State.Transitions)
@@ -229,7 +243,7 @@ FWoolooStateTreeResult Describe(const FString& Path)
             Entry->SetStringField(TEXT("event"), Transition.RequiredEvent.Tag.ToString());
             Entry->SetStringField(TEXT("priority"), StaticEnum<EStateTreeTransitionPriority>()->GetNameStringByValue(static_cast<int64>(Transition.Priority)));
             TArray<TSharedPtr<FJsonValue>> Tests;
-            for (const auto& Node : Transition.Conditions) Tests.Add(MakeShared<FJsonValueObject>(DescribeNode(Node)));
+            for (const auto& Node : Transition.Conditions) Tests.Add(MakeShared<FJsonValueObject>(DescribeNode(Node, *Data)));
             Entry->SetArrayField(TEXT("conditions"), Tests);
             Transitions.Add(MakeShared<FJsonValueObject>(Entry));
         }

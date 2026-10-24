@@ -9,7 +9,8 @@ class WOOLOOSTATETREE_API UWoolooStateTreeToolset : public UToolsetDefinition
 {
     GENERATED_BODY()
 public:
-    /** Read hierarchy, IDs, instance properties, parameters and property bindings. Does not repair the asset. */
+    /** Read hierarchy, IDs, instance properties, parameters, property bindings and each node's accessible binding sources.
+     * Does not repair the asset. */
     UFUNCTION(BlueprintCallable, meta=(AICallable), Category="StateTree")
     static FWoolooStateTreeResult DescribeStateTree(const FString& AssetPath);
 
