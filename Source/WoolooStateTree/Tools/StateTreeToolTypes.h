@@ -27,15 +27,17 @@ struct WOOLOOSTATETREE_API FWoolooStateTreeEdit
     UPROPERTY(BlueprintReadWrite, Category="StateTree") FGuid NodeId;
     UPROPERTY(BlueprintReadWrite, Category="StateTree") FGuid TransitionId;
     UPROPERTY(BlueprintReadWrite, Category="StateTree") FName Name;
-    /** Full native struct path for node creation, or UClass path for an object parameter. */
+    /** AddTask: task struct or concrete UStateTreeTaskBlueprintBase class path (including Blueprint _C classes).
+     * Conditions: native struct path. EnsureObjectParameter: object class path. */
     UPROPERTY(BlueprintReadWrite, Category="StateTree") FString TypePath;
-    /** Top-level instance properties using UE ImportText syntax. Struct-valued fields accept a complete struct literal. */
+    /** Editable struct/UObject instance fields using UE ImportText. Nested structs accept a complete literal. */
     UPROPERTY(BlueprintReadWrite, Category="StateTree") TMap<FString, FString> Properties;
     UPROPERTY(BlueprintReadWrite, Category="StateTree") FGuid TargetStateId;
     UPROPERTY(BlueprintReadWrite, Category="StateTree") FString Trigger = TEXT("OnTick");
     UPROPERTY(BlueprintReadWrite, Category="StateTree") FString TargetType = TEXT("GotoState");
     UPROPERTY(BlueprintReadWrite, Category="StateTree") FString Priority = TEXT("Normal");
     UPROPERTY(BlueprintReadWrite, Category="StateTree") FString EventTag;
+    /** Empty binds the whole source context object/struct; otherwise a property path within that source. */
     UPROPERTY(BlueprintReadWrite, Category="StateTree") FString SourcePath;
     UPROPERTY(BlueprintReadWrite, Category="StateTree") FString TargetPath;
 };

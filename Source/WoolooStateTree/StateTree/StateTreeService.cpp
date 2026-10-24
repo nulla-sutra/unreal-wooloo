@@ -1,6 +1,7 @@
 #include "WoolooStateTree/StateTree/StateTreeService.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
+#include "Blueprint/StateTreeTaskBlueprintBase.h"
 #include "Dom/JsonObject.h"
 #include "Editor.h"
 #include "GameplayTagContainer.h"
@@ -20,11 +21,11 @@
 #include "StateTreeEditorData.h"
 #include "StateTreeEditorNode.h"
 #include "StateTreeEditingSubsystem.h"
+#include "StateTreeExecutionTypes.h"
 #include "StateTreeFactory.h"
 #include "StateTreeSchema.h"
 #include "StateTreeState.h"
 #include "StateTreeTaskBase.h"
-#include "UObject/StructOnScope.h"
 #include "UObject/SavePackage.h"
 #include "UObject/UnrealType.h"
 
@@ -77,6 +78,8 @@ TSharedRef<FJsonObject> DescribeNode(const FStateTreeEditorNode& Node)
     auto Json = MakeShared<FJsonObject>();
     Json->SetStringField(TEXT("id"), Node.ID.ToString());
     Json->SetStringField(TEXT("type"), GetPathNameSafe(Node.Node.GetScriptStruct()));
+    Json->SetStringField(TEXT("name"), Node.GetName().ToString());
+    Json->SetStringField(TEXT("instance_object"), GetPathNameSafe(Node.InstanceObject));
     const auto View = Node.GetInstance();
     Json->SetStringField(TEXT("instance_type"), GetPathNameSafe(View.GetStruct()));
     Json->SetObjectField(TEXT("instance"), Properties(View.GetStruct(), View.GetMemory()));
@@ -108,40 +111,61 @@ FStateTreeEditorNode* FindNode(UStateTreeEditorData& Data, FGuid Id, UObject*& O
     return Found;
 }
 
-// Stage imports before changing the live instance. Array-index notifications are deliberately not fabricated.
+// Stage individual reflected values: UObject memory must never be copied as a UScriptStruct.
+struct FStagedInstanceProperty
+{
+    FProperty* Property;
+    void* Memory;
+    explicit FStagedInstanceProperty(FProperty* InProperty)
+        : Property(InProperty), Memory(Property->AllocateAndInitializeValue()) {}
+    ~FStagedInstanceProperty() { Property->DestroyValue(Memory); FMemory::Free(Memory); }
+};
+
 bool ImportInstance(FStateTreeEditorNode& Node, UObject* Owner, const TMap<FString, FString>& Values,
     bool bApply, FString& Error)
 {
+    if (Values.IsEmpty()) return true;
     const auto View = Node.GetInstance();
-    const auto* Type = Cast<UScriptStruct>(View.GetStruct());
-    if (!Type || !View.GetMemory()) { Error = TEXT("An initialized native struct instance is required; UObject instances are not edited by this operation."); return false; }
-    FStructOnScope Staged(Type);
-    Type->CopyScriptStruct(Staged.GetStructMemory(), View.GetMemory());
+    const auto* Type = View.GetStruct();
+    if (!Type || !View.GetMemory()) { Error = TEXT("An initialized node instance is required."); return false; }
+    auto* InstanceObject = Node.InstanceObject.Get();
+    TArray<TUniquePtr<FStagedInstanceProperty>> Staged;
     for (const auto& Pair : Values)
     {
         auto* Property = Type->FindPropertyByName(*Pair.Key);
         if (!Property || !Property->HasAnyPropertyFlags(CPF_Edit)
             || Property->HasAnyPropertyFlags(CPF_EditConst | CPF_Transient | CPF_InstancedReference | CPF_ContainsInstancedReference))
         { Error = TEXT("Not an editable instance property: ") + Pair.Key; return false; }
+        auto Value = MakeUnique<FStagedInstanceProperty>(Property);
+        Property->CopyCompleteValue(Value->Memory, Property->ContainerPtrToValuePtr<void>(View.GetMutableMemory()));
         FStringOutputDevice ImportErrors;
-        const auto* Rest = Property->ImportText_Direct(*Pair.Value,
-            Property->ContainerPtrToValuePtr<void>(Staged.GetStructMemory()), Owner, PPF_None, &ImportErrors);
+        const auto* Rest = Property->ImportText_Direct(*Pair.Value, Value->Memory,
+            InstanceObject ? InstanceObject : Owner, PPF_None, &ImportErrors);
         if (!Rest || !FString(Rest).TrimStartAndEnd().IsEmpty() || !ImportErrors.IsEmpty())
         { Error = TEXT("Import failed for ") + Pair.Key + TEXT(": ") + ImportErrors; return false; }
+        Staged.Add(MoveTemp(Value));
     }
     if (bApply)
     {
-        Type->CopyScriptStruct(View.GetMutableMemory(), Staged.GetStructMemory());
-        auto* Base = Node.Node.GetMutablePtr<FStateTreeNodeBase>();
-        for (const auto& Pair : Values)
+        if (InstanceObject) InstanceObject->Modify();
+        // Commit only requested fields; preserve UObject identity, other fields and nested instance ownership.
+        for (const auto& Value : Staged)
         {
-            auto* Property = Type->FindPropertyByName(*Pair.Key);
+            if (InstanceObject) InstanceObject->PreEditChange(Value->Property);
+            Value->Property->CopyCompleteValue(
+                Value->Property->ContainerPtrToValuePtr<void>(View.GetMutableMemory()), Value->Memory);
+        }
+        auto* Base = Node.Node.GetMutablePtr<FStateTreeNodeBase>();
+        for (const auto& Value : Staged)
+        {
+            auto* Property = Value->Property;
             FEditPropertyChain Chain;
             Chain.AddTail(Property);
             Chain.SetActivePropertyNode(Property);
             Chain.SetActiveMemberPropertyNode(Property);
             FPropertyChangedEvent Event(Property, EPropertyChangeType::ValueSet);
             FPropertyChangedChainEvent ChainEvent(Chain, Event);
+            if (InstanceObject) InstanceObject->PostEditChangeChainProperty(ChainEvent);
             if (Base) Base->PostEditInstanceDataChangeChainProperty(ChainEvent, Node.GetInstance());
         }
     }
@@ -156,6 +180,19 @@ FWoolooStateTreeResult Describe(const FString& Path)
     if (!Data) return Result(false, TEXT("StateTree editor data not found."));
     auto Json = MakeShared<FJsonObject>();
     Json->SetStringField(TEXT("schema"), Data->Schema ? Data->Schema->GetClass()->GetPathName() : FString());
+    TArray<TSharedPtr<FJsonValue>> Context;
+    if (Data->Schema)
+    {
+        for (const auto& Desc : Data->Schema->GetContextDataDescs())
+        {
+            auto Item = MakeShared<FJsonObject>();
+            Item->SetStringField(TEXT("id"), Desc.ID.ToString());
+            Item->SetStringField(TEXT("name"), Desc.Name.ToString());
+            Item->SetStringField(TEXT("type"), GetPathNameSafe(Desc.Struct));
+            Context.Add(MakeShared<FJsonValueObject>(Item));
+        }
+    }
+    Json->SetArrayField(TEXT("context"), Context);
     Json->SetStringField(TEXT("root_parameters_id"), Data->GetRootParametersGuid().ToString());
     const auto Parameters = Data->GetRootParametersPropertyBag().GetValue();
     Json->SetObjectField(TEXT("parameters"), Properties(Parameters.GetScriptStruct(), Parameters.GetMemory()));
@@ -300,18 +337,27 @@ FWoolooStateTreeResult Edit(const FString& Path, const FString& Root, const FWoo
             return Fail(TEXT("A valid native StateTree node ID is required."));
         if (!ImportInstance(*Node, Owner, Edit.Properties, false, Error)) return Fail(Error);
         Owner->Modify();
-        if (Node->InstanceObject) Node->InstanceObject->Modify();
-        ImportInstance(*Node, Owner, Edit.Properties, true, Error);
+        if (!ImportInstance(*Node, Owner, Edit.Properties, true, Error)) return Fail(Error);
         ChangedId = Node->ID;
     }
     else if (Edit.Operation == TEXT("AddTask") || Edit.Operation == TEXT("AddEnterCondition")
         || Edit.Operation == TEXT("AddTransitionCondition"))
     {
         if (!State) return Fail(TEXT("State ID not found."));
-        auto* Type = LoadObject<UScriptStruct>(nullptr, *Edit.TypePath);
+        auto* Type = LoadObject<UStruct>(nullptr, *Edit.TypePath);
+        auto* Struct = Cast<UScriptStruct>(Type);
+        auto* TaskClass = Cast<UClass>(Type);
         const auto bTask = Edit.Operation == TEXT("AddTask");
-        if (!Type || !Type->IsChildOf(bTask ? FStateTreeTaskBase::StaticStruct() : FStateTreeConditionBase::StaticStruct())
-            || (Data->Schema && !Data->Schema->IsStructAllowed(Type))) return Fail(TEXT("Node struct is incompatible with the schema or operation."));
+        if (TaskClass)
+        {
+            if (!bTask || !TaskClass->IsChildOf(UStateTreeTaskBlueprintBase::StaticClass())
+                || TaskClass->HasAnyClassFlags(CLASS_Abstract | CLASS_Deprecated | CLASS_NewerVersionExists)
+                || (Data->Schema && !Data->Schema->IsClassAllowed(TaskClass)))
+                return Fail(TEXT("AddTask requires a concrete StateTree task class allowed by the schema."));
+        }
+        else if (!Struct || !Struct->IsChildOf(bTask ? FStateTreeTaskBase::StaticStruct() : FStateTreeConditionBase::StaticStruct())
+            || (Data->Schema && !Data->Schema->IsStructAllowed(Struct)))
+            return Fail(TEXT("Node struct is incompatible with the schema or operation."));
         UObject* ExistingOwner = nullptr;
         if (Edit.NodeId.IsValid() && FindNode(*Data, Edit.NodeId, ExistingOwner)) return Fail(TEXT("Node ID already exists."));
         auto* Nodes = bTask ? &State->Tasks : &State->EnterConditions;
@@ -322,7 +368,14 @@ FWoolooStateTreeResult Edit(const FString& Path, const FString& Root, const FWoo
             Nodes = &Transition->Conditions;
         }
         FStateTreeEditorNode Added;
-        Added.InitializeAs(State, Type);
+        if (TaskClass)
+        {
+            // Match the native picker: set the class before InitializeAs allocates instance data.
+            FStateTreeBlueprintTaskWrapper Wrapper;
+            Wrapper.TaskClass = TaskClass;
+            Added.InitializeAs<FStateTreeBlueprintTaskWrapper>(State, MoveTemp(Wrapper));
+        }
+        else Added.InitializeAs(State, Struct);
         if (Edit.NodeId.IsValid()) Added.ID = Edit.NodeId;
         if (!Edit.Name.IsNone()) Added.SetNodeName(Edit.Name);
         if (!ImportInstance(Added, State, Edit.Properties, true, Error)) return Fail(Error);
@@ -381,11 +434,13 @@ FWoolooStateTreeResult Edit(const FString& Path, const FString& Root, const FWoo
     {
         FPropertyBindingPath Target;
         Target.SetStructID(Edit.NodeId);
-        if (!Target.FromString(Edit.TargetPath) || !Edit.NodeId.IsValid()) return Fail(TEXT("Invalid target binding path."));
+        if (Edit.TargetPath.IsEmpty() || !Target.FromString(Edit.TargetPath) || !Edit.NodeId.IsValid())
+            return Fail(TEXT("Invalid target binding path."));
         TInstancedStruct<FPropertyBindingBindableStructDescriptor> TargetDesc;
         TArray<FPropertyBindingPathIndirection> TargetAccess;
         if (!Data->GetBindableStructByID(Edit.NodeId, TargetDesc)
-            || !Target.ResolveIndirections(TargetDesc.Get().Struct, TargetAccess, &Error) || TargetAccess.IsEmpty())
+            || !Target.ResolveIndirections(TargetDesc.Get().Struct, TargetAccess, &Error) || TargetAccess.IsEmpty()
+            || !TargetAccess.Last().GetProperty())
             return Fail(TEXT("Target binding property could not be resolved: ") + Error);
         if (Edit.Operation == TEXT("RemoveBinding")) Data->RemovePropertyBinding(Target);
         else
@@ -398,12 +453,28 @@ FWoolooStateTreeResult Edit(const FString& Path, const FString& Root, const FWoo
             TArray<TInstancedStruct<FPropertyBindingBindableStructDescriptor>> Accessible;
             Data->GetBindableStructs(Edit.NodeId, Accessible);
             if (!Accessible.ContainsByPredicate([&](const auto& Desc) { return Desc.Get().ID == Source.GetStructID(); })
-                || !Data->GetBindableStructByID(Source.GetStructID(), SourceDesc)
-                || !Source.ResolveIndirections(SourceDesc.Get().Struct, SourceAccess, &Error) || SourceAccess.IsEmpty())
-                return Fail(TEXT("Source binding property is unavailable in the target execution path: ") + Error);
-            if (UE::PropertyBinding::GetPropertyCompatibility(SourceAccess.Last().GetProperty(), TargetAccess.Last().GetProperty())
-                == UE::PropertyBinding::EPropertyCompatibility::Incompatible)
-                return Fail(TEXT("Binding property types are incompatible."));
+                || !Data->GetBindableStructByID(Source.GetStructID(), SourceDesc))
+                return Fail(TEXT("Source binding is unavailable in the target execution path."));
+            const auto* TargetProperty = TargetAccess.Last().GetProperty();
+            if (Edit.SourcePath.IsEmpty())
+            {
+                // Native bindings can copy a whole context object/struct into a matching property.
+                const auto* ObjectProperty = CastField<FObjectPropertyBase>(TargetProperty);
+                const auto* StructProperty = CastField<FStructProperty>(TargetProperty);
+                const auto* SourceType = SourceDesc.Get().Struct.Get();
+                if (!SourceType
+                    || !((ObjectProperty && SourceType->IsChildOf(ObjectProperty->PropertyClass))
+                        || (StructProperty && SourceType == StructProperty->Struct)))
+                    return Fail(TEXT("Whole-source binding type is incompatible with the target property."));
+            }
+            else
+            {
+                if (!Source.ResolveIndirections(SourceDesc.Get().Struct, SourceAccess, &Error) || SourceAccess.IsEmpty())
+                    return Fail(TEXT("Source binding property could not be resolved: ") + Error);
+                if (UE::PropertyBinding::GetPropertyCompatibility(SourceAccess.Last().GetProperty(), TargetProperty)
+                    == UE::PropertyBinding::EPropertyCompatibility::Incompatible)
+                    return Fail(TEXT("Binding property types are incompatible."));
+            }
             Data->AddPropertyBinding(Source, Target);
             Data->OnPropertyBindingChanged(Source, Target);
         }
