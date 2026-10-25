@@ -20,12 +20,16 @@
 #include "StateTreeConditionBase.h"
 #include "StateTreeEditorData.h"
 #include "StateTreeEditorNode.h"
+#include "StateTreeEditorPropertyBindings.h"
 #include "StateTreeEditingSubsystem.h"
+#include "StateTreeEvaluatorBase.h"
 #include "StateTreeExecutionTypes.h"
 #include "StateTreeFactory.h"
+#include "StateTreePropertyFunctionBase.h"
 #include "StateTreeSchema.h"
 #include "StateTreeState.h"
 #include "StateTreeTaskBase.h"
+#include "StructUtils/PropertyBag.h"
 #include "UObject/SavePackage.h"
 #include "UObject/UnrealType.h"
 
@@ -122,7 +126,40 @@ FStateTreeEditorNode* FindNode(UStateTreeEditorData& Data, FGuid Id, UObject*& O
         { if (!Found) Search(Transition.Conditions); }
         return Found ? EStateTreeVisitor::Break : EStateTreeVisitor::Continue;
     });
+    if (!Found)
+    {
+        Data.GetPropertyEditorBindings()->ForEachMutableBinding([&](FPropertyBindingBinding& Binding)
+        {
+            auto* Function = Binding.GetMutablePropertyFunctionNode().GetPtr<FStateTreeEditorNode>();
+            if (Function && Function->ID == Id) { Found = Function; Owner = &Data; }
+        });
+    }
     return Found;
+}
+
+// Function nodes are owned by their output binding. Remove only that binding's input subtree.
+void RemoveOwnedBinding(UStateTreeEditorData& Data, const FPropertyBindingPath& Target)
+{
+    auto& Bindings = *Data.GetPropertyEditorBindings();
+    TSet<FGuid> Functions;
+    bool bAdded;
+    do
+    {
+        bAdded = false;
+        Bindings.ForEachBinding([&](const FPropertyBindingBinding& Binding)
+        {
+            if (Binding.GetTargetPath() == Target || Functions.Contains(Binding.GetTargetPath().GetStructID()))
+            {
+                const auto* Function = Binding.GetPropertyFunctionNode().GetPtr<FStateTreeEditorNode>();
+                if (Function && !Functions.Contains(Function->ID))
+                { Functions.Add(Function->ID); bAdded = true; }
+            }
+        });
+    } while (bAdded);
+    Bindings.RemoveBindings([&](FPropertyBindingBinding& Binding)
+    {
+        return Binding.GetTargetPath() == Target || Functions.Contains(Binding.GetTargetPath().GetStructID());
+    });
 }
 
 // Stage individual reflected values: UObject memory must never be copied as a UScriptStruct.
@@ -263,6 +300,13 @@ FWoolooStateTreeResult Describe(const FString& Path)
         Bindings.Add(MakeShared<FJsonValueObject>(Entry));
     });
     Json->SetArrayField(TEXT("bindings"), Bindings);
+    TArray<TSharedPtr<FJsonValue>> Functions;
+    Data->GetPropertyEditorBindings()->ForEachBinding([&](const FPropertyBindingBinding& Binding)
+    {
+        if (const auto* Function = Binding.GetPropertyFunctionNode().GetPtr<FStateTreeEditorNode>())
+            Functions.Add(MakeShared<FJsonValueObject>(DescribeNode(*Function, *Data)));
+    });
+    Json->SetArrayField(TEXT("property_functions"), Functions);
     auto Value = Result(true, TEXT("Read only."));
     FJsonSerializer::Serialize(Json, TJsonWriterFactory<>::Create(&Value.Json));
     return Value;
@@ -326,6 +370,63 @@ FWoolooStateTreeResult Edit(const FString& Path, const FString& Root, const FWoo
         ChangedId = Data->GetRootParametersGuid();
         UStateTreeEditingSubsystem::MarkAsPubliclyModified(Tree);
         UE::StateTree::Delegates::OnParametersChanged.Broadcast(*Tree);
+    }
+    else if (Edit.Operation == TEXT("RemoveRootParameter"))
+    {
+        if (Edit.Name.IsNone() || !Data->GetRootParametersPropertyBag().FindPropertyDescByName(Edit.Name))
+            return Fail(TEXT("An existing root parameter name is required."));
+        const auto RootId = Data->GetRootParametersGuid();
+        const auto ReferencesParameter = [&](const FPropertyBindingPath& BindingPath)
+        {
+            const auto Segments = BindingPath.GetSegments();
+            return BindingPath.GetStructID() == RootId
+                && (Segments.IsEmpty() || Segments[0].GetName() == Edit.Name);
+        };
+        bool bReferenced = false;
+        Data->GetPropertyEditorBindings()->ForEachBinding([&](const FPropertyBindingBinding& Binding)
+        {
+            bReferenced |= ReferencesParameter(Binding.GetSourcePath()) || ReferencesParameter(Binding.GetTargetPath());
+        });
+        if (bReferenced) return Fail(TEXT("Remove bindings referencing this root parameter before removing it."));
+
+        // The bag is editor-exposed but has no mutable native accessor. Use its reflected property and
+        // the normal property-change notification so dependent StateTree references synchronize.
+        auto* Property = FindFProperty<FStructProperty>(Data->GetClass(), TEXT("RootParameterPropertyBag"));
+        if (!Property || Property->Struct != FInstancedPropertyBag::StaticStruct())
+            return Fail(TEXT("Root parameter property bag is unavailable in this engine version."));
+        auto Parameters = Data->GetRootParametersPropertyBag();
+        if (Parameters.RemovePropertyByName(Edit.Name) != EPropertyBagAlterationResult::Success)
+            return Fail(TEXT("Native property bag removal failed; no parameter changes applied."));
+
+        FEditPropertyChain Chain;
+        Chain.AddTail(Property);
+        Chain.SetActivePropertyNode(Property);
+        Chain.SetActiveMemberPropertyNode(Property);
+        Data->PreEditChange(Chain);
+        *Property->ContainerPtrToValuePtr<FInstancedPropertyBag>(Data) = MoveTemp(Parameters);
+        FPropertyChangedEvent Event(Property, EPropertyChangeType::ValueSet);
+        FPropertyChangedChainEvent ChainEvent(Chain, Event);
+        Data->PostEditChangeChainProperty(ChainEvent);
+        ChangedId = RootId;
+    }
+    else if (Edit.Operation == TEXT("AddEvaluator"))
+    {
+        auto* Struct = LoadObject<UScriptStruct>(nullptr, *Edit.TypePath);
+        if (!Struct || !Struct->IsChildOf(FStateTreeEvaluatorBase::StaticStruct())
+            || Struct == FStateTreeEvaluatorBase::StaticStruct()
+            || Struct == FStateTreeEvaluatorCommonBase::StaticStruct()
+            || (Data->Schema && (!Data->Schema->AllowEvaluators() || !Data->Schema->IsStructAllowed(Struct))))
+            return Fail(TEXT("A native evaluator allowed by the schema is required."));
+        UObject* ExistingOwner = nullptr;
+        if (Edit.NodeId.IsValid() && FindNode(*Data, Edit.NodeId, ExistingOwner)) return Fail(TEXT("Node ID already exists."));
+
+        FStateTreeEditorNode Added;
+        Added.InitializeAs(Data, Struct);
+        if (Edit.NodeId.IsValid()) Added.ID = Edit.NodeId;
+        if (!Edit.Name.IsNone()) Added.SetNodeName(Edit.Name);
+        if (!ImportInstance(Added, Data, Edit.Properties, true, Error)) return Fail(Error);
+        ChangedId = Added.ID;
+        Data->Evaluators.Add(MoveTemp(Added));
     }
     else if (Edit.Operation == TEXT("AddState"))
     {
@@ -411,6 +512,13 @@ FWoolooStateTreeResult Edit(const FString& Path, const FString& Root, const FWoo
             if (NodeState->SingleTask.ID == Edit.NodeId) NodeState->SingleTask.Reset();
             for (auto& Transition : NodeState->Transitions) Transition.Conditions.RemoveAll(Matches);
         }
+        TArray<FPropertyBindingPath> FunctionTargets;
+        Data->GetPropertyEditorBindings()->ForEachBinding([&](const FPropertyBindingBinding& Binding)
+        {
+            const auto* Function = Binding.GetPropertyFunctionNode().GetPtr<FStateTreeEditorNode>();
+            if (Function && Function->ID == Edit.NodeId) FunctionTargets.Add(Binding.GetTargetPath());
+        });
+        for (const auto& Target : FunctionTargets) RemoveOwnedBinding(*Data, Target);
         Data->RemoveInvalidBindings();
     }
     else if (Edit.Operation == TEXT("SetTransition"))
@@ -444,6 +552,48 @@ FWoolooStateTreeResult Edit(const FString& Path, const FString& Root, const FWoo
         State->Transitions.RemoveAll([&](const auto& Item) { return Item.ID == Edit.TransitionId; });
         Data->RemoveInvalidBindings();
     }
+    else if (Edit.Operation == TEXT("BindPropertyFunction"))
+    {
+        auto* Struct = LoadObject<UScriptStruct>(nullptr, *Edit.TypePath);
+        if (!Struct || !Struct->IsChildOf(FStateTreePropertyFunctionBase::StaticStruct())
+            || Struct == FStateTreePropertyFunctionBase::StaticStruct()
+            || Struct == FStateTreePropertyFunctionCommonBase::StaticStruct()
+            || (Data->Schema && !Data->Schema->IsStructAllowed(Struct)))
+            return Fail(TEXT("A native property function allowed by the schema is required."));
+
+        FPropertyBindingPath Target(Edit.NodeId);
+        TInstancedStruct<FPropertyBindingBindableStructDescriptor> TargetDesc;
+        TArray<FPropertyBindingPathIndirection> TargetAccess;
+        if (!Edit.NodeId.IsValid() || Edit.TargetPath.IsEmpty() || !Target.FromString(Edit.TargetPath)
+            || !Data->GetBindableStructByID(Edit.NodeId, TargetDesc)
+            || !Target.ResolveIndirections(TargetDesc.Get().Struct, TargetAccess, &Error) || TargetAccess.IsEmpty()
+            || !TargetAccess.Last().GetProperty())
+            return Fail(TEXT("Target binding property could not be resolved: ") + Error);
+
+        // Stage both the function and its parameters before replacing an existing binding.
+        FStateTreeEditorNode Function;
+        Function.InitializeAs(Data, Struct);
+        if (!Edit.Name.IsNone()) Function.SetNodeName(Edit.Name);
+        if (!ImportInstance(Function, Data, Edit.Properties, true, Error)) return Fail(Error);
+        FPropertyBindingPath Source(Function.GetInstanceDataID());
+        TArray<FPropertyBindingPathIndirection> SourceAccess;
+        if (Edit.SourcePath.IsEmpty() || !Source.FromString(Edit.SourcePath)
+            || !Source.ResolveIndirections(Function.GetInstance().GetStruct(), SourceAccess, &Error)
+            || SourceAccess.IsEmpty() || !SourceAccess.Last().GetProperty()
+            || !SourceAccess[0].GetProperty()
+            || SourceAccess[0].GetProperty()->GetMetaData(TEXT("Category")) != TEXT("Output"))
+            return Fail(TEXT("A property function output path is required: ") + Error);
+        if (UE::PropertyBinding::GetPropertyCompatibility(SourceAccess.Last().GetProperty(),
+            TargetAccess.Last().GetProperty()) == UE::PropertyBinding::EPropertyCompatibility::Incompatible)
+            return Fail(TEXT("Property function output is incompatible with the target property."));
+
+        RemoveOwnedBinding(*Data, Target);
+        // Native editor-node initialization and binding storage retain the asset's ownership and ID rules.
+        Data->GetPropertyEditorBindings()->AddStateTreeBinding(
+            FStateTreePropertyPathBinding(FConstStructView::Make(Function), Source, Target));
+        Data->OnPropertyBindingChanged(Source, Target);
+        ChangedId = Function.GetInstanceDataID();
+    }
     else if (Edit.Operation == TEXT("BindProperty") || Edit.Operation == TEXT("RemoveBinding"))
     {
         FPropertyBindingPath Target;
@@ -456,7 +606,7 @@ FWoolooStateTreeResult Edit(const FString& Path, const FString& Root, const FWoo
             || !Target.ResolveIndirections(TargetDesc.Get().Struct, TargetAccess, &Error) || TargetAccess.IsEmpty()
             || !TargetAccess.Last().GetProperty())
             return Fail(TEXT("Target binding property could not be resolved: ") + Error);
-        if (Edit.Operation == TEXT("RemoveBinding")) Data->RemovePropertyBinding(Target);
+        if (Edit.Operation == TEXT("RemoveBinding")) RemoveOwnedBinding(*Data, Target);
         else
         {
             FPropertyBindingPath Source;
@@ -489,6 +639,7 @@ FWoolooStateTreeResult Edit(const FString& Path, const FString& Root, const FWoo
                     == UE::PropertyBinding::EPropertyCompatibility::Incompatible)
                     return Fail(TEXT("Binding property types are incompatible."));
             }
+            RemoveOwnedBinding(*Data, Target);
             Data->AddPropertyBinding(Source, Target);
             Data->OnPropertyBindingChanged(Source, Target);
         }
