@@ -18,15 +18,19 @@ USTRUCT(BlueprintType)
 struct WOOLOOSTATETREE_API FWoolooStateTreeEdit
 {
     GENERATED_BODY()
-    /** AddState, RemoveState, AddTask, AddEvaluator, AddEnterCondition, AddTransitionCondition, SetInstanceProperties,
+    /** AddState, RemoveState, AddTask, MoveTask, AddEvaluator, AddEnterCondition, AddTransitionCondition, SetInstanceProperties,
      * RemoveNode, SetTransition, RemoveTransition, EnsureObjectParameter, RemoveRootParameter, BindProperty,
      * BindPropertyFunction, RemoveBinding. */
     UPROPERTY(BlueprintReadWrite, Category="StateTree") FString Operation;
     UPROPERTY(BlueprintReadWrite, Category="StateTree") FGuid StateId;
     /** AddState parent; invalid creates a root. BindProperty source; invalid selects global parameters. */
     UPROPERTY(BlueprintReadWrite, Category="StateTree") FGuid SourceId;
-    /** Binding target node. BindPropertyFunction returns its owned function instance ID in EntityId. */
+    /** Binding target node, or existing task to move within StateId.
+     * BindPropertyFunction returns its owned function instance ID in EntityId. */
     UPROPERTY(BlueprintReadWrite, Category="StateTree") FGuid NodeId;
+    /** MoveTask only: final zero-based index in StateId's Tasks array. No cross-state moves.
+     * An unchanged index succeeds without modifying the asset. */
+    UPROPERTY(BlueprintReadWrite, Category="StateTree") int32 TargetIndex = INDEX_NONE;
     UPROPERTY(BlueprintReadWrite, Category="StateTree") FGuid TransitionId;
     /** AddState/EnsureObjectParameter require a name; naming added nodes is optional.
      * RemoveRootParameter requires an existing, unbound root parameter name. */

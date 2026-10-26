@@ -5,13 +5,18 @@
 #include "Dom/JsonObject.h"
 #include "Editor.h"
 #include "GameplayTagContainer.h"
+#include "IDetailTreeNode.h"
+#include "IPropertyRowGenerator.h"
 #include "Misc/StringOutputDevice.h"
 #include "Misc/PackageName.h"
 #include "Misc/Paths.h"
+#include "Modules/ModuleManager.h"
 #include "PropertyBindingBinding.h"
 #include "PropertyBindingBindableStructDescriptor.h"
 #include "PropertyBindingPath.h"
 #include "PropertyBindingTypes.h"
+#include "PropertyEditorModule.h"
+#include "PropertyHandle.h"
 #include "ScopedTransaction.h"
 #include "Serialization/JsonSerializer.h"
 #include "StateTree.h"
@@ -60,6 +65,107 @@ namespace Wooloo::StateTree
         UStateTree* LoadTree(const FString& Path)
         {
             return FPackageName::IsValidLongPackageName(Path) ? LoadObject<UStateTree>(nullptr, *Path) : nullptr;
+        }
+
+        FWoolooStateTreeResult MoveTask(UStateTree& Tree, UStateTreeEditorData& Data,
+            UStateTreeState* State, const FWoolooStateTreeEdit& Edit)
+        {
+            if (!GEditor) return Result(false, TEXT("MoveTask requires the editor."));
+            if (!State || !Edit.StateId.IsValid()) return Result(false, TEXT("State ID not found."));
+            if (!Edit.NodeId.IsValid()) return Result(false, TEXT("An existing task ID is required."));
+            if (!State->Tasks.IsValidIndex(Edit.TargetIndex))
+                return Result(false, TEXT("TargetIndex must be a valid final index in the state's Tasks array."));
+            const auto OriginalIndex = State->Tasks.IndexOfByPredicate([&](const auto& Task)
+            {
+                return Task.ID == Edit.NodeId;
+            });
+            if (OriginalIndex == INDEX_NONE)
+                return Result(false, TEXT("Task ID does not belong to the specified state's Tasks array."));
+            if (OriginalIndex == Edit.TargetIndex)
+                return Result(true, TEXT("Task is already at TargetIndex; no changes applied."), Edit.NodeId);
+
+            auto* PropertyEditor = FModuleManager::LoadModulePtr<FPropertyEditorModule>(TEXT("PropertyEditor"));
+            if (!PropertyEditor) return Result(false, TEXT("PropertyEditor module is unavailable."));
+            auto Generator = PropertyEditor->CreatePropertyRowGenerator(FPropertyRowGeneratorArgs());
+            Generator->SetObjects({State});
+
+            const auto* TasksProperty = FindFProperty<FArrayProperty>(State->GetClass(),
+                GET_MEMBER_NAME_CHECKED(UStateTreeState, Tasks));
+            TSharedPtr<IPropertyHandle> TasksHandle;
+            auto Pending = Generator->GetRootTreeNodes();
+            while (!Pending.IsEmpty() && !TasksHandle)
+            {
+                auto Row = Pending.Pop(EAllowShrinking::No);
+                // StateTree displays task elements as rows, so the array handle may be on a parent.
+                for (auto Handle = Row->CreatePropertyHandle(); Handle && Handle->IsValidHandle();
+                    Handle = Handle->GetParentHandle())
+                {
+                    if (Handle->GetProperty() != TasksProperty) continue;
+                    TArray<UObject*> Owners;
+                    Handle->GetOuterObjects(Owners);
+                    if (Owners.Num() == 1 && Owners[0] == State)
+                    {
+                        TasksHandle = Handle;
+                        break;
+                    }
+                }
+                if (!TasksHandle)
+                {
+                    TArray<TSharedRef<IDetailTreeNode>> Children;
+                    Row->GetChildren(Children, true);
+                    Pending.Append(Children);
+                }
+            }
+            auto TasksArray = TasksHandle ? TasksHandle->AsArray() : nullptr;
+            uint32 NumTasks = 0;
+            if (!TasksArray || !TasksHandle->IsEditable()
+                || TasksArray->GetNumElements(NumTasks) != FPropertyAccess::Success
+                || NumTasks != static_cast<uint32>(State->Tasks.Num()))
+                return Result(false, TEXT("The state's Tasks array has no editable native property handle."));
+            if (!State->Tasks.IsValidIndex(OriginalIndex) || !State->Tasks.IsValidIndex(Edit.TargetIndex)
+                || State->Tasks[OriginalIndex].ID != Edit.NodeId)
+                return Result(false, TEXT("Tasks changed while preparing the native property handle; retry the edit."));
+
+            TArray<FGuid> ExpectedOrder;
+            TArray<TObjectPtr<UObject>> ExpectedInstances;
+            for (const auto& Task : State->Tasks)
+            {
+                ExpectedOrder.Add(Task.ID);
+                ExpectedInstances.Add(Task.InstanceObject);
+            }
+            const auto MovedInstance = ExpectedInstances[OriginalIndex];
+            ExpectedOrder.RemoveAt(OriginalIndex);
+            ExpectedOrder.Insert(Edit.NodeId, Edit.TargetIndex);
+            ExpectedInstances.RemoveAt(OriginalIndex);
+            ExpectedInstances.Insert(MovedInstance, Edit.TargetIndex);
+
+            // Match Details-panel drag/drop: move native values inside one undoable edit, without importing an array.
+            FScopedTransaction Transaction(NSLOCTEXT("WoolooStateTree", "MoveTask", "Move StateTree Task"));
+            Tree.Modify();
+            Data.Modify();
+            State->Modify();
+            TasksHandle->NotifyPreChange();
+            const auto MoveResult = TasksArray->MoveElementTo(OriginalIndex, Edit.TargetIndex);
+            TasksHandle->NotifyPostChange(EPropertyChangeType::ArrayMove);
+            TasksHandle->NotifyFinishedChangingProperties();
+
+            UStateTreeEditingSubsystem::MarkAsModified(&Tree);
+            auto _ = Tree.MarkPackageDirty();
+            if (auto* Subsystem = GEditor->GetEditorSubsystem<UStateTreeEditingSubsystem>())
+            {
+                if (auto ViewModel = Subsystem->FindViewModel(&Tree)) ViewModel->NotifyAssetChangedExternally();
+            }
+            bool bMatches = State->Tasks.Num() == ExpectedOrder.Num();
+            for (int32 Index = 0; bMatches && Index < ExpectedOrder.Num(); ++Index)
+            {
+                bMatches = State->Tasks[Index].ID == ExpectedOrder[Index]
+                    && State->Tasks[Index].InstanceObject == ExpectedInstances[Index];
+            }
+            // Keep the undo transaction if a native edit or callback produced an unexpected result.
+            if (MoveResult != FPropertyAccess::Success || !bMatches)
+                return Result(false, TEXT("Native task move did not preserve the expected order and instances. "
+                    "Inspect the asset or undo this edit before compiling or saving."), Edit.NodeId);
+            return Result(true, TEXT("Task moved in memory; not compiled or saved."), Edit.NodeId);
         }
 
         TSharedRef<FJsonObject> Properties(const UStruct* Type, const void* Memory)
@@ -415,6 +521,8 @@ namespace Wooloo::StateTree
         auto* Data = Tree ? Cast<UStateTreeEditorData>(Tree->EditorData) : nullptr;
         if (!Data) return Result(false, TEXT("StateTree editor data not found."));
         auto* State = Data->GetMutableStateByID(Edit.StateId);
+        // MoveTask validates and handles its no-op before starting an edit transaction.
+        if (Edit.Operation == TEXT("MoveTask")) return MoveTask(*Tree, *Data, State, Edit);
         auto* Parent = Data->GetMutableStateByID(Edit.SourceId);
         FString Error;
         FGuid ChangedId;

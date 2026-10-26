@@ -12,7 +12,7 @@ public class WoolooStateTree : ModuleRules
         PrivateDependencyModuleNames.AddRange(new[]
         {
             "UnrealEd", "StateTreeModule", "StateTreeEditorModule", "PropertyBindingUtils",
-            "AssetRegistry", "GameplayTags", "Json"
+            "AssetRegistry", "GameplayTags", "Json", "PropertyEditor", "Slate", "SlateCore"
         });
     }
 }
