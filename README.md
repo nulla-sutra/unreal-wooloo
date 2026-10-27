@@ -12,6 +12,7 @@ Capabilities are organized into separate modules by domain.
 | `WoolooStateTree` | Editor / PostEngineInit | Native StateTree parameters, instance data, hierarchy, transitions, bindings, compilation and saving |
 | `WoolooBlueprint` | Editor / PostEngineInit | Blueprint graph inspection, targeted edits, layout/comments, compilation and saving                  |
 | `WoolooAssets`    | Editor / PostEngineInit | Explicit asset-move planning, native batch moves, redirector inspection and native reference fixup   |
+| `WoolooWidget`    | Editor / PostEngineInit | WidgetBlueprint layout ownership inspection, validated local/inherited root changes and Undo        |
 
 The Mutable toolset is `WoolooMutable.MutableToolset`. Python uses the same
 reflected facade through `unreal.MutableToolset`.
@@ -24,6 +25,10 @@ and [Blueprint tools](Docs/Blueprint/native-mcp.md).
 `WoolooAssets.WoolooAssetToolset` exposes the [asset migration tools](Docs/Assets/native-mcp.md).
 It reuses Unreal's AssetTools and Asset Registry, with no consuming-plugin paths
 or migration recipes in the module.
+
+`WoolooWidget.WoolooWidgetToolset` exposes the [Widget layout tools](Docs/Widget/native-mcp.md).
+It uses native UMG editor APIs to inspect source/compiled layout ownership and
+switch between local and inherited layouts without rewriting graph logic.
 
 ## Integration
 
@@ -65,6 +70,12 @@ Read-only planning does not load assets. Native rename/fixup may save referencer
 update collections and use configured source control. Authoring requires a clean
 editor and stopped PIE; it does not build C++, run gameplay, or automatically start MCP.
 
+Widget layout writes require a narrow `AllowedPackageRoot` and explicit permission
+to discard an existing root subtree. Dependency and Named Slot checks precede the
+transaction. Structural notification refreshes the Blueprint skeleton; full
+compilation and saving remain separate actions. Custom binding extensions block
+subtree removal until their dependencies can be inspected.
+
 ## Source layout
 
 - `Source/WoolooMutable/Graph/`: native graph service and shared graph types.
@@ -76,6 +87,8 @@ editor and stopped PIE; it does not build C++, run gameplay, or automatically st
 - `Docs/StateTree/` and `Docs/Blueprint/`: tool contracts and editor verification.
 - `Source/WoolooAssets/`: native AssetTools adapter and reflected tool facade.
 - `Docs/Assets/`: asset migration contracts and editor verification.
+- `Source/WoolooWidget/`: UMG layout service, reflected tools and explicit Automation cases.
+- `Docs/Widget/`: layout inheritance contracts and editor verification.
 
 Headers and implementations stay together by feature. The UE 5.8 integration
 reads native hierarchy and compilation interfaces from

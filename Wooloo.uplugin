@@ -29,6 +29,11 @@
             "Name": "WoolooAssets",
             "Type": "Editor",
             "LoadingPhase": "PostEngineInit"
+        },
+        {
+            "Name": "WoolooWidget",
+            "Type": "Editor",
+            "LoadingPhase": "PostEngineInit"
         }
     ],
     "Plugins": [
