@@ -13,6 +13,8 @@ Capabilities are organized into separate modules by domain.
 | `WoolooBlueprint` | Editor / PostEngineInit | Blueprint graph inspection, targeted edits, layout/comments, compilation and saving                  |
 | `WoolooAssets`    | Editor / PostEngineInit | Explicit asset-move planning, native batch moves, redirector inspection and native reference fixup   |
 | `WoolooWidget`    | Editor / PostEngineInit | WidgetBlueprint layout ownership inspection, validated local/inherited root changes and Undo        |
+| `WoolooMaterial`  | Editor / PostEngineInit | Material-domain tools; native creation of unsaved Material Parameter Collections                    |
+| `WoolooCamera`    | Editor / PostEngineInit | Camera Rig leaf-node replacement with native execution slots, graph ownership and Undo              |
 
 The Mutable toolset is `WoolooMutable.MutableToolset`. Python uses the same
 reflected facade through `unreal.MutableToolset`.
@@ -30,6 +32,17 @@ or migration recipes in the module.
 It uses native UMG editor APIs to inspect source/compiled layout ownership and
 switch between local and inherited layouts without rewriting graph logic.
 
+`WoolooMaterial.WoolooMaterialToolset` exposes the [material tools](Docs/Material/native-mcp.md).
+It creates unsaved MPCs with native factories and caller-supplied scopes and
+defaults. Material-domain operations remain separate from asset migration and
+camera authoring; there are no consuming-plugin dependencies or conventions.
+
+`WoolooCamera.WoolooCameraToolset` exposes the [camera tools](Docs/Camera/native-mcp.md).
+It replaces registered Camera Rig leaf nodes with explicit properties, preserving
+execution slots, enabled state and position. Bindings and unsupported references
+are refused; native transactions support Undo. The Rig remains unsaved and needs
+a build.
+
 ## Integration
 
 1. Place the plugin under the host project's Plugins directory.
@@ -40,9 +53,10 @@ switch between local and inherited layouts without rewriting graph logic.
    the [Mutable tool guide](Docs/Mutable/native-mcp.md).
 
 The plugin descriptor declares Editor-only dependencies on `Mutable`, `StateTree`,
-`PropertyBindingUtils`, `ToolsetRegistry`, and `ModelContextProtocol`. Wooloo has no
-runtime module. C++ consumers declare the owning capability module as a dependency;
-MCP and Python consumers use that module's reflected tools.
+`EnhancedInput`, `PropertyBindingUtils`, `GameplayCameras`, `ToolsetRegistry`, and
+`ModelContextProtocol`. Wooloo has no runtime module. C++ consumers declare the
+owning capability module as a dependency; MCP and Python consumers use that
+module's reflected tools.
 
 The module registers its toolset during startup and unregisters it during
 shutdown. Server startup and asset operations are explicit actions.
@@ -76,6 +90,11 @@ transaction. Structural notification refreshes the Blueprint skeleton; full
 compilation and saving remain separate actions. Custom binding extensions block
 subtree removal until their dependencies can be inspected.
 
+Camera Rig replacement requires a narrow `AllowedPackageRoot`, an exact Rig-relative
+node path, stopped PIE and a closed target asset editor. Properties are validated
+on a transient candidate before changing the Rig. New nodes use new-class defaults
+plus explicit values; material setup and consumer migration remain separate.
+
 ## Source layout
 
 - `Source/WoolooMutable/Graph/`: native graph service and shared graph types.
@@ -89,6 +108,10 @@ subtree removal until their dependencies can be inspected.
 - `Docs/Assets/`: asset migration contracts and editor verification.
 - `Source/WoolooWidget/`: UMG layout service, reflected tools and explicit Automation cases.
 - `Docs/Widget/`: layout inheritance contracts and editor verification.
+- `Source/WoolooMaterial/`: native material service, reflected tools and explicit Automation cases.
+- `Docs/Material/`: material tool contracts and editor verification.
+- `Source/WoolooCamera/`: native Camera Rig service, reflected tool and explicit Automation cases.
+- `Docs/Camera/`: leaf replacement contract, limitations and editor verification.
 
 Headers and implementations stay together by feature. The UE 5.8 integration
 reads native hierarchy and compilation interfaces from

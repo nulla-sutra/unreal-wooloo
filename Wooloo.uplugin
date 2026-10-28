@@ -34,9 +34,24 @@
             "Name": "WoolooWidget",
             "Type": "Editor",
             "LoadingPhase": "PostEngineInit"
+        },
+        {
+            "Name": "WoolooMaterial",
+            "Type": "Editor",
+            "LoadingPhase": "PostEngineInit"
+        },
+        {
+            "Name": "WoolooCamera",
+            "Type": "Editor",
+            "LoadingPhase": "PostEngineInit"
         }
     ],
     "Plugins": [
+        {
+            "Name": "GameplayCameras",
+            "Enabled": true,
+            "TargetAllowList": [ "Editor" ]
+        },
         {
             "Name": "EnhancedInput",
             "Enabled": true,
