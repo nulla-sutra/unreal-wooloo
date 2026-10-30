@@ -2,9 +2,9 @@
 
 The editor-only `WoolooBlueprint` module registers
 `WoolooBlueprint.WoolooBlueprintToolset`. It depends on native Blueprint editor
-APIs, EnhancedInput and InputBlueprintNodes. It has no dependency on any consuming
-gameplay plugin or GA superclass. EnhancedInput is declared as an Editor-only
-plugin dependency.
+APIs, EnhancedInput, InputBlueprintNodes, AssetRegistry and AnimGraph. It has no
+dependency on any consuming gameplay plugin or GA superclass. EnhancedInput is
+declared as an Editor-only plugin dependency.
 
 Build/reload the host Editor target, start Unreal's official MCP server and
 discover the toolset. See the [StateTree guide](../StateTree/native-mcp.md) for
@@ -12,6 +12,9 @@ server discovery. Tool definitions must be inspected before invocation.
 
 ## Operations
 
+- CreateAnimationBlueprintTemplate: create an unsaved, Skeleton-independent
+  `UAnimBlueprint` with `UAnimInstance` as its parent, using the native
+  `UAnimBlueprintFactory`. Refuses existing packages both in memory and on disk.
 - DescribeBlueprint: read all graphs including interface implementations; returns
   node GUIDs/classes/titles, pin names/directions/defaults/links, layout and comments,
   local variables, parent class and compile status.
@@ -21,8 +24,39 @@ server discovery. Tool definitions must be inspected before invocation.
 - SaveBlueprint: save only the requested package, with no source-control action.
 
 Writes reject PIE, engine content and paths outside a narrow caller-supplied
-content directory. All operations target existing Blueprint assets. This is not
-a general UObject property editor and does not implement C++ compilation.
+content directory. Edit, describe, compile and save target existing Blueprint
+assets. This is not a general UObject property editor and does not implement C++
+compilation.
+
+## Creating an animation Blueprint template
+
+`CreateAnimationBlueprintTemplate(AssetPath, AllowedPackageRoot)` accepts a new
+long package path and a narrow writable directory containing it. For example:
+
+```json
+{
+  "assetPath": "/Game/Examples/Animation/ABP_Common",
+  "allowedPackageRoot": "/Game/Examples/Animation"
+}
+```
+
+The operation registers the animation compiler module and calls the native
+animation Blueprint factory with `bTemplate=true` and no Skeleton. The factory
+performs its normal initial Blueprint setup; this is not a C++ compilation.
+There is no explicit follow-up compile, package save, source-control operation,
+Skeleton creation, animation assignment or consumer-specific graph authoring.
+The resulting instance belongs to its new package and participates in the normal
+editor UObject lifecycle. Existing packages are never reused or adopted.
+
+The existing `FWoolooBlueprintResult` reports success and a message. On success,
+`Json` includes `asset_path`, `created`, `dirty`, `is_template`, `parent_class`
+and `target_skeleton` (`"None"` when unassigned). On failure, inspect `Message`;
+if the native factory fails after allocating a package, that package may remain
+in memory and must not be blindly retried or overwritten.
+
+Populate the template through existing Blueprint/animation tools, then explicitly
+call `CompileBlueprint` and `SaveBlueprint` for that package. The tool does not
+create Animation Layer Interfaces or bind role-specific layers.
 
 ## Edit fields
 
@@ -79,6 +113,17 @@ nodes and bounded comments. A graph read validates structure but does not replac
 visual inspection in the editor. Compilation and saving are separate calls.
 
 ## Editor verification after building
+
+The Development/Debug automation test
+`Wooloo.Blueprint.AnimationBlueprintTemplate.CreationAndGuards` creates a uniquely
+named in-memory fixture and checks the template flag, generic parent, absent
+Skeleton, metadata, lack of a disk save, scope rejection and duplicate refusal.
+It unregisters its fixture without deleting any files. It has not been run in
+the authoring session. After building, run this test in the editor. Separately,
+in an approved disposable content scope, populate a template with an input pose,
+compile and save it, reopen it and verify it can be used by a Linked Anim Graph.
+Confirm that creating at the saved package path is refused. Creation alone does
+not verify the later authored graph or its cross-Skeleton use.
 
 Use an approved scratch Blueprint: add a native call/task node, inspect its pins,
 connect and disconnect, change defaults, move nodes, create Chinese comment boxes,

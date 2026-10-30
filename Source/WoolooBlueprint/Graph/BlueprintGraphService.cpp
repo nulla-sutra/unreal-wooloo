@@ -1,5 +1,9 @@
 #include "WoolooBlueprint/Graph/BlueprintGraphService.h"
 
+#include "Animation/AnimBlueprint.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/Skeleton.h"
+#include "AssetRegistry/AssetRegistryModule.h"
 #include "Dom/JsonObject.h"
 #include "Editor.h"
 #include "EdGraph/EdGraph.h"
@@ -9,6 +13,7 @@
 #include "EdGraphSchema_K2.h"
 #include "Engine/Blueprint.h"
 #include "Engine/BlueprintGeneratedClass.h"
+#include "Factories/AnimBlueprintFactory.h"
 #include "InputAction.h"
 #include "K2Node_BaseAsyncTask.h"
 #include "K2Node_CallFunction.h"
@@ -19,8 +24,10 @@
 #include "Misc/StringOutputDevice.h"
 #include "Misc/PackageName.h"
 #include "Misc/Paths.h"
+#include "Modules/ModuleManager.h"
 #include "ScopedTransaction.h"
 #include "Serialization/JsonSerializer.h"
+#include "UObject/Package.h"
 #include "UObject/SavePackage.h"
 #include "UObject/Interface.h"
 #include "UObject/UnrealType.h"
@@ -126,6 +133,41 @@ bool ValidateInputActionNode(const UK2Node_EnhancedInputAction& Node, FString& E
         return Fail(TEXT("InputAction output does not match the configured asset."));
     return true;
 }
+}
+
+FWoolooBlueprintResult CreateAnimationTemplate(const FString& Path, const FString& Root)
+{
+    if (GEditor && GEditor->PlayWorld) return Result(false, TEXT("Stop PIE before authoring assets."));
+    if (!InScope(Path, Root)) return Result(false, TEXT("Asset path is outside the explicit content root."));
+    if (FindPackage(nullptr, *Path) || FPackageName::DoesPackageExist(Path))
+        return Result(false, TEXT("Package already exists; creation never replaces or adopts it."));
+
+    // Register the native animation Blueprint compiler before the factory's initial Blueprint setup.
+    FModuleManager::LoadModuleChecked<IModuleInterface>(TEXT("AnimGraph"));
+    auto* Factory = NewObject<UAnimBlueprintFactory>();
+    Factory->BlueprintType = BPTYPE_Normal;
+    Factory->ParentClass = UAnimInstance::StaticClass();
+    Factory->TargetSkeleton = nullptr;
+    Factory->bTemplate = true;
+    auto* Package = CreatePackage(*Path);
+    auto* Asset = Cast<UAnimBlueprint>(Factory->FactoryCreateNew(UAnimBlueprint::StaticClass(), Package,
+        *FPackageName::GetLongPackageAssetName(Path), RF_Public | RF_Standalone | RF_Transactional,
+        nullptr, GWarn));
+    if (!Asset)
+        return Result(false, TEXT("Native animation Blueprint factory failed; no asset was saved. The package may remain in memory."));
+
+    FAssetRegistryModule::AssetCreated(Asset);
+    Asset->MarkPackageDirty();
+    auto Json = MakeShared<FJsonObject>();
+    Json->SetStringField(TEXT("asset_path"), Path);
+    Json->SetBoolField(TEXT("created"), true);
+    Json->SetBoolField(TEXT("dirty"), Package->IsDirty());
+    Json->SetBoolField(TEXT("is_template"), Asset->bIsTemplate);
+    Json->SetStringField(TEXT("parent_class"), GetPathNameSafe(Asset->ParentClass));
+    Json->SetStringField(TEXT("target_skeleton"), GetPathNameSafe(Asset->TargetSkeleton));
+    auto Value = Result(true, TEXT("Created in memory with the native factory; compile and save explicitly."));
+    FJsonSerializer::Serialize(Json, TJsonWriterFactory<>::Create(&Value.Json));
+    return Value;
 }
 
 FWoolooBlueprintResult Describe(const FString& Path)

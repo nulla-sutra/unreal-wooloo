@@ -1,6 +1,9 @@
 #include "WoolooBlueprint/Tools/BlueprintToolset.h"
 #include "WoolooBlueprint/Graph/BlueprintGraphService.h"
 
+FWoolooBlueprintResult UWoolooBlueprintToolset::CreateAnimationBlueprintTemplate(const FString& AssetPath,
+    const FString& AllowedPackageRoot)
+{ return Wooloo::Blueprint::CreateAnimationTemplate(AssetPath, AllowedPackageRoot); }
 FWoolooBlueprintResult UWoolooBlueprintToolset::DescribeBlueprint(const FString& AssetPath)
 { return Wooloo::Blueprint::Describe(AssetPath); }
 FWoolooBlueprintResult UWoolooBlueprintToolset::EditBlueprint(const FString& AssetPath,

@@ -10,7 +10,8 @@ public class WoolooBlueprint : ModuleRules
         bLegacyParentIncludePaths = true;
         PublicDependencyModuleNames.AddRange(new[] { "Core", "CoreUObject", "Engine", "ToolsetRegistry" });
         PrivateDependencyModuleNames.AddRange(new[] {
-            "UnrealEd", "BlueprintGraph", "KismetCompiler", "Json", "EnhancedInput", "InputBlueprintNodes"
+            "UnrealEd", "BlueprintGraph", "KismetCompiler", "Json", "EnhancedInput", "InputBlueprintNodes",
+            "AssetRegistry", "AnimGraph"
         });
     }
 }

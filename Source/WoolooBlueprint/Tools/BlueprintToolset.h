@@ -9,6 +9,12 @@ class WOOLOOBLUEPRINT_API UWoolooBlueprintToolset : public UToolsetDefinition
 {
     GENERATED_BODY()
 public:
+    /** Create an unsaved animation Blueprint template with no Skeleton, using the native factory.
+     * Refuses existing packages and paths outside a narrow content directory. */
+    UFUNCTION(BlueprintCallable, meta=(AICallable), Category="Blueprint|Animation")
+    static FWoolooBlueprintResult CreateAnimationBlueprintTemplate(const FString& AssetPath,
+        const FString& AllowedPackageRoot);
+
     /** Read graphs including native interface implementations, node GUIDs, pins, links, layout and comments. */
     UFUNCTION(BlueprintCallable, meta=(AICallable), Category="Blueprint")
     static FWoolooBlueprintResult DescribeBlueprint(const FString& AssetPath);
