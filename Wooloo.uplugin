@@ -44,9 +44,20 @@
             "Name": "WoolooCamera",
             "Type": "Editor",
             "LoadingPhase": "PostEngineInit"
+        },
+        {
+            "Name": "WoolooPIE",
+            "Type": "Editor",
+            "LoadingPhase": "PostEngineInit",
+            "TargetConfigurationAllowList": [ "Debug", "DebugGame", "Development" ]
         }
     ],
     "Plugins": [
+        {
+            "Name": "GameplayAbilities",
+            "Enabled": true,
+            "TargetAllowList": [ "Editor" ]
+        },
         {
             "Name": "GameplayCameras",
             "Enabled": true,

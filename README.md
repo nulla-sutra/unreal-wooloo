@@ -15,6 +15,7 @@ Capabilities are organized into separate modules by domain.
 | `WoolooWidget`    | Editor / PostEngineInit | WidgetBlueprint layout ownership inspection, validated local/inherited root changes and Undo        |
 | `WoolooMaterial`  | Editor / PostEngineInit | Material-domain tools; native creation of unsaved Material Parameter Collections                    |
 | `WoolooCamera`    | Editor / PostEngineInit | Camera Rig leaf-node replacement with native execution slots, graph ownership and Undo              |
+| `WoolooPIE`       | Editor / PostEngineInit | Read-only multi-world PIE snapshots and explicit local-player single-frame Enhanced Input injection |
 
 The Mutable toolset is `WoolooMutable.MutableToolset`. Python uses the same
 reflected facade through `unreal.MutableToolset`.
@@ -45,6 +46,12 @@ a build.
 
 ## Integration
 
+`WoolooPIE.WoolooPIEToolset` exposes the [native PIE diagnostics tools](Docs/PIE/native-mcp.md).
+It identifies worlds by their engine context handles and verifies exact Controller/Pawn paths.
+Input goes through Enhanced Input on the normal game loop. Call its input tool directly
+through Unreal's official MCP server; Python and editor-script bridges are refused.
+This module is included only in Debug, DebugGame and Development Editor targets.
+
 1. Place the plugin under the host project's Plugins directory.
 2. Enable `Wooloo` in the project descriptor or a consuming plugin descriptor.
    For an editor-only dependency, use `"TargetAllowList": ["Editor"]`.
@@ -53,7 +60,7 @@ a build.
    the [Mutable tool guide](Docs/Mutable/native-mcp.md).
 
 The plugin descriptor declares Editor-only dependencies on `Mutable`, `StateTree`,
-`EnhancedInput`, `PropertyBindingUtils`, `GameplayCameras`, `ToolsetRegistry`, and
+`EnhancedInput`, `GameplayAbilities`, `PropertyBindingUtils`, `GameplayCameras`, `ToolsetRegistry`, and
 `ModelContextProtocol`. Wooloo has no runtime module. C++ consumers declare the
 owning capability module as a dependency; MCP and Python consumers use that
 module's reflected tools.
@@ -112,6 +119,8 @@ plus explicit values; material setup and consumer migration remain separate.
 - `Docs/Material/`: material tool contracts and editor verification.
 - `Source/WoolooCamera/`: native Camera Rig service, reflected tool and explicit Automation cases.
 - `Docs/Camera/`: leaf replacement contract, limitations and editor verification.
+- `Source/WoolooPIE/`: native PIE selection, snapshots, one-frame input tools and explicit Automation cases.
+- `Docs/PIE/`: native MCP connection, targeting, input contracts and multiplayer verification.
 
 Headers and implementations stay together by feature. The UE 5.8 integration
 reads native hierarchy and compilation interfaces from

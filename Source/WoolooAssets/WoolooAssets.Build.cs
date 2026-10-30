@@ -8,6 +8,7 @@ public class WoolooAssets : ModuleRules
         bLegacyParentIncludePaths = true;
 
         PublicDependencyModuleNames.AddRange(new[] { "Core", "CoreUObject", "Engine", "ToolsetRegistry" });
-        PrivateDependencyModuleNames.AddRange(new[] { "UnrealEd", "AssetRegistry", "AssetTools", "CollectionManager" });
+        PrivateDependencyModuleNames.AddRange(new[] { "UnrealEd", "AssetRegistry", "AssetTools", "CollectionManager", "Json" });
+        AddEngineThirdPartyPrivateStaticDependencies(Target, "OpenSSL");
     }
 }

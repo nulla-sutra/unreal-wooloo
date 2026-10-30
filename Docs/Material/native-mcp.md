@@ -1,5 +1,28 @@
 # Native material tools
 
+## Standard surface materials
+
+`CreateSurfaceMaterial(AssetPath, AllowedPackageRoot, BaseColor, BaseColorTexture,
+OpacityMaskTexture, Roughness, bTwoSided, bUsedWithSkeletalMesh)` creates and saves
+one new native Material. Texture arguments are package paths without object
+suffixes and must identify existing Texture2D assets. Empty BaseColorTexture
+uses the supplied linear RGB constant. A mask connects its Alpha output and
+selects Masked; otherwise the result is Opaque. When both inputs use the same
+texture, they share one sample node. Roughness must be finite and in [0, 1].
+
+The adapter uses native MaterialEditingLibrary graph/compilation operations,
+with explicit node positions and usage flags. It does not infer extra PBR
+connections, overwrite existing materials, start PIE or compile C++. Results
+report `bCreated` and `bSaved` separately: compilation/save failure can leave the
+new material in memory, and must not be retried blindly. Only the requested
+new material package is saved; referenced textures are not modified.
+
+`Wooloo.Material.Surface` Automation cases exercise native graph creation/save,
+usage/color settings, overwrite protection and invalid input refusal. Fixture
+assets live under a temporary mount backed by `Saved/Automation/WoolooMaterial/`.
+Compilation, Automation execution, editor restart and live schema verification
+remain explicit steps; adding these sources does not execute those steps.
+
 The editor-only `WoolooMaterial` module owns material, material-function and
 Material Parameter Collection editing capabilities. Its first tool creates MPCs.
 Asset migration remains in `WoolooAssets`; camera authoring belongs to its own

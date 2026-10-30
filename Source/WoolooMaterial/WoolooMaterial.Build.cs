@@ -8,6 +8,6 @@ public class WoolooMaterial : ModuleRules
         bLegacyParentIncludePaths = true;
 
         PublicDependencyModuleNames.AddRange(new[] { "Core", "CoreUObject", "Engine", "ToolsetRegistry" });
-        PrivateDependencyModuleNames.AddRange(new[] { "UnrealEd", "AssetRegistry", "AssetTools", "Json" });
+        PrivateDependencyModuleNames.AddRange(new[] { "UnrealEd", "AssetRegistry", "AssetTools", "Json", "MaterialEditor" });
     }
 }
