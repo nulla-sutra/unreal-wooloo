@@ -4,6 +4,13 @@
 #include "PIEToolTypes.generated.h"
 
 // The owning module's configuration allow-list excludes these reflected diagnostics from Test/Shipping.
+UENUM(BlueprintType)
+enum class EWoolooPIESessionMode : uint8
+{
+    Standalone,
+    DedicatedServer
+};
+
 USTRUCT(BlueprintType)
 struct WOOLOOPIE_API FWoolooPIEPlayerTarget
 {

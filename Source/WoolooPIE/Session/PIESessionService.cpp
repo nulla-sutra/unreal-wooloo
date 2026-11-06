@@ -11,6 +11,7 @@
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
 #include "Editor.h"
+#include "Engine/Blueprint.h"
 #include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
 #include "Engine/LocalPlayer.h"
@@ -23,9 +24,15 @@
 #include "GameFramework/PlayerState.h"
 #include "InputAction.h"
 #include "InputActionValue.h"
+#include "Kismet2/BlueprintEditorUtils.h"
 #include "Misc/PackageName.h"
+#include "PlayInEditorDataTypes.h"
 #include "Serialization/JsonSerializer.h"
+#include "Settings/LevelEditorPlaySettings.h"
+#include "UObject/Package.h"
 #include "UObject/SoftObjectPath.h"
+#include "UObject/UObjectGlobals.h"
+#include "UObject/UObjectIterator.h"
 
 namespace Wooloo::PIE
 {
@@ -232,6 +239,72 @@ const UInputAction* FindBoundAction(TConstArrayView<TWeakObjectPtr<const UInputC
     if (!Found) Error = TEXT("Action is not bound in this player's most recently processed input stack; wait for normal input processing or inspect the bindings.");
     return Found;
 }
+}
+
+FWoolooPIEResult StartSession(const FString& ExpectedMapPackage, EWoolooPIESessionMode Mode, int32 NumPlayers)
+{
+    if (!IsInGameThread()) return Failure(TEXT("PIE startup must run on the game thread."));
+    if (!GEditor) return Failure(TEXT("Editor engine is not available."));
+    if (GEditor->IsPlaySessionInProgress()) return Failure(TEXT("A play session is active or already queued."));
+    if (GEditor->IsTransactionActive()) return Failure(TEXT("Finish the active editor transaction before starting PIE."));
+    if (!FPackageName::IsValidLongPackageName(ExpectedMapPackage, true))
+        return Failure(TEXT("ExpectedMapPackage must be a long map package name."));
+
+    const auto bDedicatedServer = Mode == EWoolooPIESessionMode::DedicatedServer;
+    if (!bDedicatedServer && Mode != EWoolooPIESessionMode::Standalone)
+        return Failure(TEXT("Mode must be Standalone or DedicatedServer."));
+    if (NumPlayers < 1 || (!bDedicatedServer && NumPlayers != 1))
+        return Failure(TEXT("Standalone requires one player. DedicatedServer requires at least one client."));
+    if (bDedicatedServer && !GEditor->bAllowMultiplePIEWorlds)
+        return Failure(TEXT("The editor does not allow multiple in-process PIE worlds."));
+
+    const UWorld* EditorWorld = nullptr;
+    for (const auto& Context : GEditor->GetWorldContexts())
+    {
+        if (Context.WorldType == EWorldType::PIE)
+            return Failure(TEXT("A PIE world is still present. Wait for teardown before starting another session."));
+        if (Context.WorldType == EWorldType::Editor) EditorWorld = Context.World();
+    }
+    if (!IsValid(EditorWorld)) return Failure(TEXT("No editor map is open."));
+    const auto MapPackage = EditorWorld->GetPackage()->GetName();
+    if (MapPackage != ExpectedMapPackage)
+        return Failure(FString::Printf(TEXT("Current editor map is '%s'. Open the expected map before starting PIE."), *MapPackage));
+
+    // PIE can compile stale Blueprints or open a modal for compile errors after the request returns.
+    for (TObjectIterator<UBlueprint> It; It; ++It)
+    {
+        const auto* Blueprint = *It;
+        if (!IsValid(Blueprint) || Blueprint->GetPackage()->HasAnyPackageFlags(PKG_ForDiffing)) continue;
+        if (Blueprint->Status == BS_Error
+            || (Blueprint->Status == BS_Dirty && !FBlueprintEditorUtils::IsDataOnlyBlueprint(Blueprint)))
+            return Failure(FString::Printf(TEXT("Resolve the Blueprint compile status before starting PIE: %s"), *Blueprint->GetPathName()));
+    }
+
+    // Supply a transient settings copy so the requested topology never changes editor defaults.
+    auto* Settings = DuplicateObject(GetDefault<ULevelEditorPlaySettings>(), GetTransientPackage());
+    Settings->SetRunUnderOneProcess(true);
+    Settings->SetPlayNetMode(bDedicatedServer ? EPlayNetMode::PIE_Client : EPlayNetMode::PIE_Standalone);
+    Settings->bLaunchSeparateServer = false;
+    Settings->SetPlayNumberOfClients(NumPlayers);
+    int32 ConfiguredPlayers = 0;
+    Settings->GetPlayNumberOfClients(ConfiguredPlayers);
+    if (ConfiguredPlayers != NumPlayers)
+        return Failure(FString::Printf(TEXT("NumPlayers exceeds the editor's PIE limit of %d."), ConfiguredPlayers));
+
+    auto Json = MakeShared<FJsonObject>();
+    Json->SetBoolField(TEXT("Queued"), true);
+    Json->SetStringField(TEXT("MapPackage"), MapPackage);
+    Json->SetStringField(TEXT("Mode"), NetModeName(bDedicatedServer ? NM_DedicatedServer : NM_Standalone));
+    Json->SetNumberField(TEXT("NumPlayers"), NumPlayers);
+    auto Result = Success(Json, TEXT("PIE request queued. Confirm worlds and players with DescribeSession."));
+    if (Result.bSuccess)
+    {
+        FRequestPlaySessionParams Params;
+        Params.EditorPlaySettings = Settings;
+        Params.bAllowOnlineSubsystem = false;
+        GEditor->RequestPlaySession(Params);
+    }
+    return Result;
 }
 
 FWoolooPIEResult DescribeSession()

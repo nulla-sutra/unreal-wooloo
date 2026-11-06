@@ -43,6 +43,36 @@ enabled, since that component would introduce another guard when processing inpu
 It never changes either setting. Input is submitted using native
 `InjectInputForAction`; normal input processing executes the gameplay path.
 
+## StartSession
+
+```cpp
+static FWoolooPIEResult StartSession(const FString& ExpectedMapPackage,
+    EWoolooPIESessionMode Mode, int32 NumPlayers);
+```
+
+Open the intended map in the editor before calling `StartSession`. Pass its full
+package name without the object suffix. `Standalone` requires one player.
+`DedicatedServer` creates one dedicated server world and `NumPlayers` client
+worlds in the editor process, subject to the engine's PIE limit. The request
+uses a transient copy of the editor play settings and local PIE networking.
+
+Example arguments for two clients on a dedicated server.
+
+```json
+{
+  "expectedMapPackage": "/Game/Example/Maps/TestMap",
+  "mode": "DedicatedServer",
+  "numPlayers": 2
+}
+```
+
+The tool refuses an active or queued session, a remaining PIE world, an active
+editor transaction, a map mismatch, or a loaded Blueprint that would require
+compile resolution. A successful response reports `Queued: true` and the
+requested map, mode and player count. The engine processes the request on a
+subsequent editor tick. Use `DescribeSession` with a bounded wait to verify the
+world topology and player identities before submitting input.
+
 ## DescribeSession
 
 ```cpp
@@ -155,7 +185,9 @@ policy. Importing the module does not run any of them.
    a bounded observation window (for example 5 seconds), compare the selected
    client's state with the matching server player using `PlayerId` and exact
    ActorInfo identities. Confirm the other player's state was not triggered.
-3. Repeat with two clients on a Dedicated Server, including the second client.
+3. Use `StartSession` with `Standalone` and one player, then verify a single
+   standalone world. Stop it and request `DedicatedServer` with two players.
+   Verify one server and two client worlds, then exercise the second client.
    Use native logs/Trace when snapshot sampling cannot establish server receipt
    or catch an instantaneous action. Record the actual observation duration,
    selected identities and observed activation/replication separately from

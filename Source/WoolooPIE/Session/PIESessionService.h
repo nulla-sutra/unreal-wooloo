@@ -13,6 +13,7 @@ enum class EInputActionValueType : uint8;
 // Internal implementation shared by the tool facade and its explicit Automation cases.
 namespace Wooloo::PIE
 {
+FWoolooPIEResult StartSession(const FString& ExpectedMapPackage, EWoolooPIESessionMode Mode, int32 NumPlayers);
 FWoolooPIEResult DescribeSession();
 FWoolooPIEResult InjectInputAction(const FWoolooPIEPlayerTarget& Target,
     const FString& InputActionPath, const FVector& Value);
