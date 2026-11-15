@@ -23,6 +23,25 @@ struct WOOLOOPIE_API FWoolooPIEPlayerTarget
 };
 
 USTRUCT(BlueprintType)
+struct WOOLOOPIE_API FWoolooPIEInputStep
+{
+    GENERATED_BODY()
+
+    UPROPERTY(BlueprintReadWrite, Category="PIE") float OffsetSeconds = 0.f;
+    UPROPERTY(BlueprintReadWrite, Category="PIE") FString InputActionPath;
+    UPROPERTY(BlueprintReadWrite, Category="PIE") FVector Value = FVector::ZeroVector;
+};
+
+USTRUCT(BlueprintType)
+struct WOOLOOPIE_API FWoolooPIEDebugKeyStep
+{
+    GENERATED_BODY()
+
+    UPROPERTY(BlueprintReadWrite, Category="PIE") float OffsetSeconds = 0.f;
+    UPROPERTY(BlueprintReadWrite, Category="PIE") FName Key;
+};
+
+USTRUCT(BlueprintType)
 struct WOOLOOPIE_API FWoolooPIEResult
 {
     GENERATED_BODY()

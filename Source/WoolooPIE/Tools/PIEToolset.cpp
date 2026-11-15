@@ -18,4 +18,16 @@ FWoolooPIEResult UWoolooPIEToolset::InjectInputAction(const FWoolooPIEPlayerTarg
 {
     return Wooloo::PIE::InjectInputAction(Target, InputActionPath, Value);
 }
+
+FWoolooPIEResult UWoolooPIEToolset::InjectInputSequence(const FWoolooPIEPlayerTarget& Target,
+    const TArray<FWoolooPIEInputStep>& Steps)
+{
+    return Wooloo::PIE::InjectInputSequence(Target, Steps);
+}
+
+FWoolooPIEResult UWoolooPIEToolset::InjectDebugKeySequence(const FWoolooPIEPlayerTarget& Target,
+    const TArray<FWoolooPIEDebugKeyStep>& Steps)
+{
+    return Wooloo::PIE::InjectDebugKeySequence(Target, Steps);
+}
 #endif

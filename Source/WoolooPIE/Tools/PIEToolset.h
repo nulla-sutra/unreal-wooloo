@@ -21,4 +21,14 @@ public:
     UFUNCTION(BlueprintCallable, meta=(AICallable), Category="PIE")
     static FWoolooPIEResult InjectInputAction(const FWoolooPIEPlayerTarget& Target,
         const FString& InputActionPath, const FVector& Value);
+
+    /** Queue one-frame inputs at game-time offsets in the selected PIE world. The first offset must be zero. */
+    UFUNCTION(BlueprintCallable, meta=(AICallable), Category="PIE")
+    static FWoolooPIEResult InjectInputSequence(const FWoolooPIEPlayerTarget& Target,
+        const TArray<FWoolooPIEInputStep>& Steps);
+
+    /** Tap bound native Debug Keys on the selected PIE player's input stack at game-time offsets. */
+    UFUNCTION(BlueprintCallable, meta=(AICallable), Category="PIE")
+    static FWoolooPIEResult InjectDebugKeySequence(const FWoolooPIEPlayerTarget& Target,
+        const TArray<FWoolooPIEDebugKeyStep>& Steps);
 };

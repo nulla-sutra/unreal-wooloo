@@ -17,6 +17,8 @@ FWoolooPIEResult StartSession(const FString& ExpectedMapPackage, EWoolooPIESessi
 FWoolooPIEResult DescribeSession();
 FWoolooPIEResult InjectInputAction(const FWoolooPIEPlayerTarget& Target,
     const FString& InputActionPath, const FVector& Value);
+FWoolooPIEResult InjectInputSequence(const FWoolooPIEPlayerTarget& Target, const TArray<FWoolooPIEInputStep>& Steps);
+FWoolooPIEResult InjectDebugKeySequence(const FWoolooPIEPlayerTarget& Target, const TArray<FWoolooPIEDebugKeyStep>& Steps);
 
 namespace Private
 {

@@ -563,7 +563,13 @@ namespace Wooloo::StateTree
         }
         else if (Edit.Operation == TEXT("RemoveRootParameter"))
         {
-            if (Edit.Name.IsNone() || !Data->GetRootParametersPropertyBag().FindPropertyDescByName(Edit.Name))
+            // Assets authored before 5.6 can still serialize a second copy of a removed parameter.
+            PRAGMA_DISABLE_DEPRECATION_WARNINGS
+            auto& LegacyParameters = Data->RootParameters.Parameters;
+            PRAGMA_ENABLE_DEPRECATION_WARNINGS
+            const bool bInCurrent = Data->GetRootParametersPropertyBag().FindPropertyDescByName(Edit.Name) != nullptr;
+            const bool bInLegacy = LegacyParameters.FindPropertyDescByName(Edit.Name) != nullptr;
+            if (Edit.Name.IsNone() || (!bInCurrent && !bInLegacy))
                 return Fail(TEXT("An existing root parameter name is required."));
             const auto RootId = Data->GetRootParametersGuid();
             const auto ReferencesParameter = [&](const FPropertyBindingPath& BindingPath)
@@ -586,7 +592,9 @@ namespace Wooloo::StateTree
             if (!Property || Property->Struct != FInstancedPropertyBag::StaticStruct())
                 return Fail(TEXT("Root parameter property bag is unavailable in this engine version."));
             auto Parameters = Data->GetRootParametersPropertyBag();
-            if (Parameters.RemovePropertyByName(Edit.Name) != EPropertyBagAlterationResult::Success)
+            auto LegacyCopy = LegacyParameters;
+            if ((bInCurrent && Parameters.RemovePropertyByName(Edit.Name) != EPropertyBagAlterationResult::Success)
+                || (bInLegacy && LegacyCopy.RemovePropertyByName(Edit.Name) != EPropertyBagAlterationResult::Success))
                 return Fail(TEXT("Native property bag removal failed; no parameter changes applied."));
 
             FEditPropertyChain Chain;
@@ -594,6 +602,7 @@ namespace Wooloo::StateTree
             Chain.SetActivePropertyNode(Property);
             Chain.SetActiveMemberPropertyNode(Property);
             Data->PreEditChange(Chain);
+            if (bInLegacy) LegacyParameters = MoveTemp(LegacyCopy);
             *Property->ContainerPtrToValuePtr<FInstancedPropertyBag>(Data) = MoveTemp(Parameters);
             FPropertyChangedEvent Event(Property, EPropertyChangeType::ValueSet);
             FPropertyChangedChainEvent ChainEvent(Chain, Event);

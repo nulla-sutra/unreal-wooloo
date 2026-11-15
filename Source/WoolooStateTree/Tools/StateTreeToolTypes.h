@@ -33,7 +33,8 @@ struct WOOLOOSTATETREE_API FWoolooStateTreeEdit
     UPROPERTY(BlueprintReadWrite, Category="StateTree") int32 TargetIndex = INDEX_NONE;
     UPROPERTY(BlueprintReadWrite, Category="StateTree") FGuid TransitionId;
     /** AddState/EnsureObjectParameter require a name; naming added nodes is optional.
-     * RemoveRootParameter requires an existing, unbound root parameter name. */
+     * RemoveRootParameter removes an unbound name from the current and legacy editor parameter bags.
+     * The name can exist only in the legacy bag after migration. */
     UPROPERTY(BlueprintReadWrite, Category="StateTree") FName Name;
     /** AddTask: task struct or concrete UStateTreeTaskBlueprintBase class path (including Blueprint _C classes).
      * AddEvaluator/Conditions/BindPropertyFunction: native struct path. EnsureObjectParameter: object class path. */

@@ -119,6 +119,26 @@ An instantaneous ability may start and finish between snapshots. An active abili
 or montage is not proof of server acceptance or a particular RPC's delivery;
 scoped prediction keys may already have been restored when inspected.
 
+## InjectInputSequence
+
+`InjectDebugKeySequence(Target, Steps)` uses the same schedule for GYM Debug
+Key entries. Each step contains `OffsetSeconds` and an unmodified `Key` name.
+The key must have a native pressed binding on the identified player's input
+stack. Each submission supplies both key edges to normal player input processing.
+
+`InjectInputSequence(Target, Steps)` schedules formal InputAction inputs at
+game-time offsets on one identified PIE local player. Each step contains
+`OffsetSeconds`, `InputActionPath` and `Value`. The first offset is zero.
+Subsequent offsets increase strictly, up to 120 seconds and 2048 steps total.
+Each step submits one frame. Include a gap for an input that needs a release.
+Use native Debug Key events for GYM test cases.
+
+The tool validates all bindings before queuing and checks the target identity
+and binding again on each submission. A world timer owns the remaining steps.
+The result includes the sequence ID; `LogWoolooPIEInput` records submission
+completion or failure. Verify the predicted action and the server outcome
+independently.
+
 ## InjectInputAction
 
 ```cpp

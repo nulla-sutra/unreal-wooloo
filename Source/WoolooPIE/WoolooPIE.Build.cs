@@ -8,6 +8,6 @@ public class WoolooPIE : ModuleRules
         bLegacyParentIncludePaths = true;
 
         PublicDependencyModuleNames.AddRange(new[] { "Core", "CoreUObject", "Engine", "ToolsetRegistry" });
-        PrivateDependencyModuleNames.AddRange(new[] { "UnrealEd", "EnhancedInput", "GameplayAbilities", "Json" });
+        PrivateDependencyModuleNames.AddRange(new[] { "UnrealEd", "EnhancedInput", "InputCore", "GameplayAbilities", "Json" });
     }
 }
