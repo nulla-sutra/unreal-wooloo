@@ -13,6 +13,7 @@
 #include "Modules/ModuleManager.h"
 #include "PropertyBindingBinding.h"
 #include "PropertyBindingBindableStructDescriptor.h"
+#include "PropertyBindingDataView.h"
 #include "PropertyBindingPath.h"
 #include "PropertyBindingTypes.h"
 #include "PropertyEditorModule.h"
@@ -805,7 +806,7 @@ namespace Wooloo::StateTree
             FPropertyBindingPath Source(Function.GetInstanceDataID());
             TArray<FPropertyBindingPathIndirection> SourceAccess;
             if (Edit.SourcePath.IsEmpty() || !Source.FromString(Edit.SourcePath)
-                || !Source.ResolveIndirections(Function.GetInstance().GetStruct(), SourceAccess, &Error)
+                || !Source.ResolveIndirectionsWithValue(Function.GetInstance(), SourceAccess, &Error)
                 || SourceAccess.IsEmpty() || !SourceAccess.Last().GetProperty()
                 || !SourceAccess[0].GetProperty()
                 || SourceAccess[0].GetProperty()->GetMetaData(TEXT("Category")) != TEXT("Output"))
@@ -815,6 +816,8 @@ namespace Wooloo::StateTree
                 UE::PropertyBinding::EPropertyCompatibility::Incompatible)
                 return Fail(TEXT("Property function output is incompatible with the target property."));
 
+            // Keep the concrete type of any instanced output segment for the compiled binding.
+            Source.UpdateSegmentsFromIndirections(SourceAccess);
             RemoveOwnedBinding(*Data, Target);
             // Native editor-node initialization and binding storage retain the asset's ownership and ID rules.
             Data->GetPropertyEditorBindings()->AddStateTreeBinding(
@@ -864,8 +867,16 @@ namespace Wooloo::StateTree
                 }
                 else
                 {
-                    if (!Source.ResolveIndirections(SourceDesc.Get().Struct, SourceAccess, &Error) || SourceAccess.
-                        IsEmpty())
+                    if (!Source.ResolveIndirections(SourceDesc.Get().Struct, SourceAccess, &Error))
+                    {
+                        // An event's payload type is carried by its editor instance, not by FInstancedStruct itself.
+                        FPropertyBindingDataView SourceView;
+                        if (!Data->GetBindingDataViewByID(Source.GetStructID(), SourceView) || !SourceView.GetMemory()
+                            || !Source.ResolveIndirectionsWithValue(SourceView, SourceAccess, &Error))
+                            return Fail(TEXT("Source binding property could not be resolved: ") + Error);
+                        Source.UpdateSegmentsFromIndirections(SourceAccess);
+                    }
+                    if (SourceAccess.IsEmpty() || !SourceAccess.Last().GetProperty())
                         return Fail(TEXT("Source binding property could not be resolved: ") + Error);
                     if (UE::PropertyBinding::GetPropertyCompatibility(SourceAccess.Last().GetProperty(), TargetProperty)
                         == UE::PropertyBinding::EPropertyCompatibility::Incompatible)
