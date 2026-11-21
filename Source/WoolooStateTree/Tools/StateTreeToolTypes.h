@@ -18,14 +18,14 @@ USTRUCT(BlueprintType)
 struct WOOLOOSTATETREE_API FWoolooStateTreeEdit
 {
     GENERATED_BODY()
-    /** AddState, RemoveState, AddTask, MoveTask, AddEvaluator, AddEnterCondition, AddTransitionCondition, SetInstanceProperties,
+    /** AddState, RemoveState, AddTask, MoveTask, ReplaceTask, AddEvaluator, AddEnterCondition, AddTransitionCondition, SetInstanceProperties,
      * RemoveNode, SetTransition, RemoveTransition, EnsureObjectParameter, RemoveRootParameter, BindProperty,
      * BindPropertyFunction, RemoveBinding. */
     UPROPERTY(BlueprintReadWrite, Category="StateTree") FString Operation;
     UPROPERTY(BlueprintReadWrite, Category="StateTree") FGuid StateId;
     /** AddState parent; invalid creates a root. BindProperty source; invalid selects global parameters. */
     UPROPERTY(BlueprintReadWrite, Category="StateTree") FGuid SourceId;
-    /** Binding target node, or existing task to move within StateId.
+    /** Binding target node, or existing task to move or replace within StateId.
      * BindPropertyFunction returns its owned function instance ID in EntityId. */
     UPROPERTY(BlueprintReadWrite, Category="StateTree") FGuid NodeId;
     /** MoveTask only: final zero-based index in StateId's Tasks array. No cross-state moves.
@@ -37,9 +37,9 @@ struct WOOLOOSTATETREE_API FWoolooStateTreeEdit
      * The name can exist only in the legacy bag after migration. */
     UPROPERTY(BlueprintReadWrite, Category="StateTree") FName Name;
     /** AddTask: task struct or concrete UStateTreeTaskBlueprintBase class path (including Blueprint _C classes).
-     * AddEvaluator/Conditions/BindPropertyFunction: native struct path. EnsureObjectParameter: object class path. */
+     * ReplaceTask/AddEvaluator/Conditions/BindPropertyFunction: native struct path. EnsureObjectParameter: object class path. */
     UPROPERTY(BlueprintReadWrite, Category="StateTree") FString TypePath;
-    /** Editable instance fields using UE ImportText. BindPropertyFunction configures the new function instance. */
+    /** Editable instance fields using UE ImportText. ReplaceTask configures the replacement node struct itself. */
     UPROPERTY(BlueprintReadWrite, Category="StateTree") TMap<FString, FString> Properties;
     UPROPERTY(BlueprintReadWrite, Category="StateTree") FGuid TargetStateId;
     UPROPERTY(BlueprintReadWrite, Category="StateTree") FString Trigger = TEXT("OnTick");

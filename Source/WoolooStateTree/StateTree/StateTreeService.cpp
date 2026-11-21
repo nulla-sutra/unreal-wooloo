@@ -194,6 +194,7 @@ namespace Wooloo::StateTree
             const auto View = Node.GetInstance();
             Json->SetStringField(TEXT("instance_type"), GetPathNameSafe(View.GetStruct()));
             Json->SetObjectField(TEXT("instance"), Properties(View.GetStruct(), View.GetMemory()));
+            Json->SetObjectField(TEXT("node"), Properties(Node.Node.GetScriptStruct(), Node.Node.GetMemory()));
             TArray<TInstancedStruct<FPropertyBindingBindableStructDescriptor>> BindableStructs;
             // Native visibility ties each transition event to the conditions on its own transition.
             Data.GetBindableStructs(Node.ID, BindableStructs);
@@ -664,6 +665,55 @@ namespace Wooloo::StateTree
             Owner->Modify();
             if (!ImportInstance(*Node, Owner, Edit.Properties, true, Error)) return Fail(Error);
             ChangedId = Node->ID;
+        }
+        else if (Edit.Operation == TEXT("ReplaceTask"))
+        {
+            if (!State || !Edit.NodeId.IsValid()) return Fail(TEXT("State and task IDs are required."));
+            auto* Existing = State->Tasks.FindByPredicate([&](const auto& Node) { return Node.ID == Edit.NodeId; });
+            if (!Existing && State->SingleTask.ID == Edit.NodeId) Existing = &State->SingleTask;
+            const auto* OldTask = Existing ? Existing->Node.GetPtr<FStateTreeTaskBase>() : nullptr;
+            auto* Type = LoadObject<UScriptStruct>(nullptr, *Edit.TypePath);
+            if (!OldTask || !Type || !Type->IsChildOf(FStateTreeTaskBase::StaticStruct())
+                || Type == FStateTreeTaskBase::StaticStruct() || Type == FStateTreeTaskCommonBase::StaticStruct()
+                || Type->HasMetaData(TEXT("Hidden")) || (Data->Schema && !Data->Schema->IsStructAllowed(Type)))
+                return Fail(TEXT("An existing task and a native replacement allowed by the schema are required."));
+
+            FStateTreeEditorNode Replacement;
+            Replacement.InitializeAs(State, Type);
+            Replacement.ID = Existing->ID;
+            Replacement.SetNodeName(OldTask->Name);
+            auto* NewTask = Replacement.Node.GetMutablePtr<FStateTreeTaskBase>();
+            NewTask->bTaskEnabled = OldTask->bTaskEnabled;
+            NewTask->bConsideredForCompletion = OldTask->bConsideredForCompletion;
+
+            // Import into the staged node so a bad property cannot replace the existing task.
+            for (const auto& [Name, Value] : Edit.Properties)
+            {
+                auto* Property = Type->FindPropertyByName(*Name);
+                if (!Property || !Property->HasAnyPropertyFlags(CPF_Edit) || Property->HasAnyPropertyFlags(
+                    CPF_EditConst | CPF_Transient | CPF_InstancedReference | CPF_ContainsInstancedReference))
+                    return Fail(TEXT("Not an editable node property: ") + Name);
+                FStringOutputDevice ImportErrors;
+                const auto* Rest = Property->ImportText_Direct(*Value,
+                    Property->ContainerPtrToValuePtr<void>(Replacement.Node.GetMutableMemory()), State, PPF_None,
+                    &ImportErrors);
+                if (!Rest || !FString(Rest).TrimStartAndEnd().IsEmpty() || !ImportErrors.IsEmpty())
+                    return Fail(TEXT("Import failed for ") + Name + TEXT(": ") + ImportErrors);
+            }
+
+            *Existing = MoveTemp(Replacement);
+            ChangedId = Existing->ID;
+            TArray<FPropertyBindingPath> RemovedTargets;
+            Data->GetPropertyEditorBindings()->ForEachBinding([&](const FPropertyBindingBinding& Binding)
+            {
+                const auto& Target = Binding.GetTargetPath();
+                const auto TargetId = Target.GetStructID();
+                if (TargetId != ChangedId && TargetId != Existing->GetNodeID()) return;
+                const auto View = TargetId == ChangedId ? Existing->GetInstance() : FStateTreeDataView(Existing->Node);
+                TArray<FPropertyBindingPathIndirection> Access;
+                if (!View.GetStruct() || !Target.ResolveIndirectionsWithValue(View, Access)) RemovedTargets.Add(Target);
+            });
+            for (const auto& Target : RemovedTargets) RemoveOwnedBinding(*Data, Target);
         }
         else if (Edit.Operation == TEXT("AddTask") || Edit.Operation == TEXT("AddEnterCondition")
             || Edit.Operation == TEXT("AddTransitionCondition"))
